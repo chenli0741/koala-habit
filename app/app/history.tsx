@@ -1,41 +1,44 @@
 import { Link } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
-import { historyStats, missions } from "../data/demo";
+import { historyStats } from "../data/demo";
+import { useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
 
 export default function HistoryScreen() {
+  const { completedCount, missions, t } = useKoalaStore();
+
   return (
     <View style={shared.screen}>
       <View style={shared.pageHeader}>
         <View>
-          <Text style={shared.kicker}>History</Text>
-          <Text style={shared.title}>Summer habit record</Text>
-          <Text style={shared.subtitle}>Track today, this week, and reading streaks.</Text>
+          <Text style={shared.kicker}>{t("history")}</Text>
+          <Text style={shared.title}>{t("summerHabitRecord")}</Text>
+          <Text style={shared.subtitle}>{t("trackHistory")}</Text>
         </View>
         <Link href="/" style={shared.navButton}>
-          <Text style={shared.navButtonText}>Back Today</Text>
+          <Text style={shared.navButtonText}>{t("backToday")}</Text>
         </Link>
       </View>
 
       <View style={styles.metrics}>
         <View style={[shared.card, styles.metric]}>
-          <Text style={styles.metricLabel}>Today completed</Text>
+          <Text style={styles.metricLabel}>{t("todayCompleted")}</Text>
           <Text style={styles.metricValue}>
-            {historyStats.todayCompleted}/{historyStats.totalToday}
+            {completedCount}/{missions.length}
           </Text>
         </View>
         <View style={[shared.card, styles.metric]}>
-          <Text style={styles.metricLabel}>Weekly rate</Text>
+          <Text style={styles.metricLabel}>{t("weeklyRate")}</Text>
           <Text style={styles.metricValue}>{historyStats.weeklyCompletionRate}%</Text>
         </View>
         <View style={[shared.card, styles.metric]}>
-          <Text style={styles.metricLabel}>🔥 Reading Streak</Text>
-          <Text style={styles.metricValue}>{historyStats.readingStreakDays} days</Text>
+          <Text style={styles.metricLabel}>🔥 {t("readingStreakMetric")}</Text>
+          <Text style={styles.metricValue}>{historyStats.readingStreakDays}</Text>
         </View>
       </View>
 
       <View style={[shared.card, styles.timeline]}>
-        <Text style={styles.sectionTitle}>Today</Text>
+        <Text style={styles.sectionTitle}>{t("today")}</Text>
         {missions.map((mission) => (
           <View key={mission.id} style={styles.row}>
             <Text style={styles.icon}>{mission.icon}</Text>
@@ -43,7 +46,7 @@ export default function HistoryScreen() {
               <Text style={styles.rowTitle}>{mission.title}</Text>
               <Text style={styles.rowMeta}>{mission.target}</Text>
             </View>
-            <Text style={styles.rowStatus}>{mission.status === "done" ? "Done" : "Open"}</Text>
+            <Text style={styles.rowStatus}>{mission.status === "done" ? t("done") : t("open")}</Text>
           </View>
         ))}
       </View>

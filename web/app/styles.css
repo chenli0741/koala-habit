@@ -5,61 +5,973 @@
 body {
   margin: 0;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f6f1e8;
+  background: #f5f2ea;
   color: #20352b;
 }
 
-.shell {
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 8px;
+  background: #f5c84c;
+  color: #302712;
+  cursor: pointer;
+  font-weight: 850;
+  padding: 0 16px;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #d9d0c1;
+  border-radius: 8px;
+  background: #fff;
+  color: #20352b;
+  font-weight: 650;
+  min-height: 42px;
+  padding: 10px 12px;
+}
+
+input[type="color"] {
+  padding: 5px;
+}
+
+textarea {
+  line-height: 1.45;
+  min-height: 108px;
+  resize: vertical;
+}
+
+select {
+  appearance: none;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+.authPage {
   min-height: 100vh;
-  padding: 48px;
+  display: grid;
+  place-items: center;
+  padding: 28px;
 }
 
-.intro {
-  max-width: 760px;
+.authPanel {
+  width: min(1060px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: 24px;
+  align-items: stretch;
 }
 
-.intro p {
-  margin: 0 0 12px;
-  color: #617064;
-  font-weight: 800;
+.brandBlock,
+.authCard,
+.panel,
+.metrics article {
+  border: 1px solid #ded3c1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.brandBlock {
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 42px;
+  background: #21382d;
+  color: #fff;
+}
+
+.brandBlock h1 {
+  max-width: 620px;
+  font-size: 64px;
+  line-height: 1;
+  margin-bottom: 18px;
+}
+
+.brandBlock p:last-child {
+  max-width: 620px;
+  color: #dfe9df;
+  font-size: 18px;
+  line-height: 1.55;
+  margin-bottom: 0;
+}
+
+.authCard,
+.formStack,
+.taskForm {
+  display: grid;
+  gap: 14px;
+}
+
+.authCard {
+  padding: 24px;
+  align-content: center;
+}
+
+.authCard label,
+.formGrid label,
+.formStack label {
+  display: grid;
+  gap: 7px;
+  color: #657365;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.modeSwitch,
+.topNav,
+.headerActions,
+.menuSwitch {
+  display: flex;
+  gap: 8px;
+}
+
+.modeSwitch {
+  background: #f0ebe2;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.modeSwitch button,
+.menuSwitch button,
+.topNav button {
+  background: transparent;
+  color: #526050;
+}
+
+.menuSwitch button {
+  min-height: 28px;
+  border-radius: 5px;
+  font-size: 11px;
+  padding: 0 8px;
+}
+
+.modeSwitch .active,
+.menuSwitch .active,
+.topNav .active {
+  background: #20352b;
+  color: #fff;
+}
+
+.siteShell {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: 22px;
+  display: grid;
+  gap: 18px;
+}
+
+.siteHeader {
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr);
+  gap: 18px;
+  align-items: center;
+  border-bottom: 1px solid #ded3c1;
+}
+
+.siteHeader h1 {
+  margin: 4px 0 0;
+}
+
+.headerActions {
+  justify-self: end;
+  align-items: center;
+}
+
+.iconButton,
+.avatarButton {
+  width: 42px;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: transparent;
+  color: #4f5955;
+  font-size: 22px;
+  padding: 0;
+}
+
+.avatarButton {
+  list-style: none;
+  cursor: pointer;
+}
+
+.avatarButton::-webkit-details-marker {
+  display: none;
+}
+
+.iconButton:hover,
+.avatarButton:hover {
+  background: #ebe7df;
+}
+
+.accountMenu {
+  position: relative;
+}
+
+.authPage > .accountMenu {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 30;
+}
+
+.avatarButton {
+  border: 3px solid #4b6fa8;
+  background: #3f7d58;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.avatarButton span {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #d8892b;
+}
+
+.accountPopover {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 40;
+  width: min(340px, calc(100vw - 28px));
+  border: 1px solid #ded3c1;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 46px rgba(32, 53, 43, 0.18);
+  padding: 14px;
+}
+
+.authPage > .accountMenu .accountPopover {
+  position: fixed;
+  top: 68px;
+  right: 16px;
+}
+
+.accountSummary {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  border-bottom: 1px solid #e8dfd2;
+  padding: 8px 8px 16px;
+  text-align: center;
+}
+
+.accountSummary span,
+.menuLabel {
+  color: #657365;
+}
+
+.avatarLarge {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border: 4px solid #4b6fa8;
+  border-radius: 50%;
+  background: #d8892b;
+  color: #fff;
+  font-size: 26px;
+  font-weight: 900;
+}
+
+.menuGroup {
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid #efe7dc;
+  padding: 12px 0;
+}
+
+.menuGroup:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.menuGroup > button {
+  min-height: 38px;
+  display: block;
+  border-radius: 6px;
+  background: transparent;
+  color: #20352b;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.menuGroup > button:hover {
+  background: #f3efe8;
+}
+
+.menuSwitch {
+  width: fit-content;
+  border-radius: 8px;
+  background: #f0ebe2;
+  padding: 4px;
+}
+
+.dangerText {
+  color: #a95140 !important;
+}
+
+.metrics span,
+.taskList span,
+.memberList span,
+.ruleGrid span,
+.historyList span,
+.historyList em,
+.detailHero span,
+.taskDetail p,
+.taskDetail li,
+.detailGrid dt,
+.message {
+  color: #657365;
+}
+
+.kicker {
+  margin: 0;
+  color: #60705f;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
-.intro h1 {
-  margin: 0;
-  font-size: 64px;
-  line-height: 1;
+.brandBlock .kicker {
+  color: #bbd2bd;
 }
 
-.intro span {
-  display: block;
-  margin-top: 18px;
-  font-size: 20px;
-  color: #526350;
+.message {
+  border-radius: 8px;
+  background: #e7f0e2;
+  color: #3f7053;
+  font-weight: 800;
+  margin: 0;
+  padding: 12px 14px;
+}
+
+.message.inline {
+  background: transparent;
+  padding: 0;
+}
+
+.message.toast {
+  position: fixed;
+  top: 92px;
+  right: 22px;
+  z-index: 24;
+  border: 1px solid #cae0c3;
+  box-shadow: 0 12px 30px rgba(32, 53, 43, 0.14);
+  max-width: min(320px, calc(100vw - 28px));
 }
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 48px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .metrics article {
-  border: 1px solid #e0d5c2;
-  border-radius: 8px;
-  background: #ffffff;
-  padding: 22px;
-}
-
-.metrics span {
-  display: block;
-  color: #617064;
-  font-size: 15px;
+  padding: 18px;
 }
 
 .metrics strong {
   display: block;
-  margin-top: 12px;
+  margin-top: 6px;
+  font-size: 30px;
+}
+
+.taskWorkspace {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.95fr) minmax(500px, 1.2fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.templateWorkspace {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.95fr) minmax(500px, 1.2fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.panel {
+  padding: 20px;
+}
+
+.sectionHead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.sectionHead h2 {
+  margin: 4px 0 0;
+}
+
+.templateRow,
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.calendarToolbar {
+  display: grid;
+  grid-template-columns: auto 170px;
+  gap: 10px;
+  margin-top: 16px;
+  align-items: center;
+}
+
+.chip,
+.secondary {
+  background: #eef3ea;
+  color: #3f7d58;
+}
+
+.danger {
+  background: #f4dfd6;
+  color: #a95140;
+}
+
+.taskList,
+.templateList {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.calendarBoard {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.calendarBoard.day {
+  grid-template-columns: 1fr;
+}
+
+.calendarBoard.week {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendarBoard.month {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendarBoard article {
+  min-height: 112px;
+  border: 1px solid #e5dac9;
+  border-radius: 8px;
+  background: #fcfbf8;
+  padding: 10px;
+}
+
+.calendarBoard.month article {
+  min-height: 92px;
+}
+
+.calendarBoard article.today {
+  border-color: #3f7d58;
+  background: #f3f8ef;
+}
+
+.calendarBoard header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #657365;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.calendarTasks {
+  display: grid;
+  gap: 6px;
+}
+
+.calendarTasks button {
+  min-height: auto;
+  display: grid;
+  gap: 2px;
+  border-left: 4px solid #3f7d58;
+  background: #fff;
+  color: #20352b;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.calendarTasks button.selected {
+  background: #20352b;
+  color: #fff;
+}
+
+.calendarTasks span {
+  color: inherit;
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.taskList article,
+.templateList article {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  border: 1px solid #e5dac9;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  padding: 12px;
+}
+
+.emptySlot {
+  display: grid;
+  gap: 4px;
+  border: 1px dashed #d9d0c1;
+  border-radius: 8px;
+  color: #657365;
+  padding: 18px;
+}
+
+.taskList article.selected,
+.templateList article.selected {
+  border-color: #3f7d58;
+  box-shadow: 0 0 0 2px rgba(63, 125, 88, 0.12);
+}
+
+.taskList strong,
+.taskList span,
+.taskList p,
+.templateList strong,
+.templateList span,
+.templateList p {
+  display: block;
+}
+
+.taskList p,
+.templateList p {
+  color: #657365;
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 6px 0 0;
+  max-height: 42px;
+  overflow: hidden;
+}
+
+.taskIcon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 24px;
+}
+
+.taskIcon.large {
+  width: 66px;
+  height: 66px;
   font-size: 34px;
+}
+
+.status {
+  border-radius: 999px;
+  padding: 7px 10px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.status.done {
+  background: #e7f0e2;
+  color: #3f7d58;
+}
+
+.status.todo,
+.status.in_progress {
+  background: #f6efe5;
+  color: #8a6840;
+}
+
+.status.expired {
+  background: #f4e3e2;
+  color: #a0473d;
+}
+
+.templateDetail {
+  display: grid;
+  gap: 18px;
+}
+
+.detailPanel {
+  position: sticky;
+  top: 18px;
+}
+
+.taskDetail {
+  display: grid;
+  gap: 18px;
+}
+
+.detailHero {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  border-bottom: 1px solid #e5dac9;
+  padding-bottom: 18px;
+}
+
+.detailHero h2 {
+  margin: 3px 0 4px;
+  font-size: 34px;
+}
+
+.taskDetail section {
+  border-bottom: 1px solid #ece3d6;
+  padding-bottom: 14px;
+}
+
+.taskDetail h3 {
+  margin-bottom: 8px;
+}
+
+.taskDetail ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.taskDetail li {
+  margin: 6px 0;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.detailGrid div {
+  border: 1px solid #e5dac9;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.detailGrid dt {
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.detailGrid dd {
+  margin: 5px 0 0;
+  font-weight: 900;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.formGrid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.repeatEditor {
+  display: grid;
+  grid-column: span 2;
+  gap: 14px;
+}
+
+.repeatFrequency,
+.weeklyInterval {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.repeatFrequency span,
+.weeklyInterval span {
+  color: #2f332f;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.repeatFrequency select {
+  border: 0;
+  border-radius: 9px;
+  background: #ececec;
+  color: #2f332f;
+  font-size: 18px;
+  font-weight: 900;
+  min-height: 44px;
+}
+
+.weeklyRepeatPanel {
+  display: grid;
+  gap: 14px;
+  width: min(460px, 100%);
+}
+
+.weeklyInterval {
+  grid-template-columns: auto 58px auto;
+}
+
+.weeklyInterval input {
+  min-height: 48px;
+  border-color: #ececec;
+  border-radius: 10px;
+  font-size: 22px;
+  text-align: center;
+}
+
+.weekdayPicker {
+  display: grid;
+  grid-template-columns: repeat(7, 48px);
+  justify-content: center;
+  gap: 0;
+}
+
+.weekdayPicker button {
+  min-height: 48px;
+  border: 1px solid #b9b9b9;
+  border-radius: 0;
+  background: #f3f3f3;
+  color: #2f332f;
+  font-size: 20px;
+  padding: 0;
+}
+
+.weekdayPicker button + button {
+  border-left: 0;
+}
+
+.weekdayPicker button.active {
+  background: #d7d7d7;
+}
+
+.repeatActions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.repeatActions button {
+  min-width: 84px;
+}
+
+.repeatActions button:last-child {
+  background: #ef4d4d;
+  color: #fff;
+}
+
+.checkboxLine {
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: center;
+  align-self: end;
+  min-height: 42px;
+}
+
+.checkboxLine input {
+  width: 18px;
+  min-height: 18px;
+  padding: 0;
+}
+
+.wide {
+  grid-column: span 2;
+}
+
+.taskForm > button {
+  justify-self: start;
+}
+
+.fileInput input {
+  padding: 8px;
+}
+
+.attachmentEditor,
+.detailAttachments {
+  display: grid;
+  gap: 10px;
+}
+
+.attachmentEditor {
+  margin-top: 4px;
+}
+
+.attachmentEditor article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e5dac9;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
+}
+
+.attachmentEditor span,
+.detailAttachments span {
+  display: block;
+  color: #657365;
+  font-size: 12px;
+  font-weight: 800;
+  margin-top: 3px;
+}
+
+.detailAttachments a {
+  display: block;
+  border: 1px solid #e5dac9;
+  border-left: 4px solid #3f7d58;
+  border-radius: 8px;
+  color: #20352b;
+  padding: 10px 12px;
+  text-decoration: none;
+}
+
+.gridTwo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: 18px;
+  align-items: start;
+}
+
+.memberList,
+.ruleGrid,
+.historyList {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.memberList article,
+.ruleGrid article,
+.historyList article {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e5dac9;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.progressCard {
+  min-width: 280px;
+}
+
+.progressCard strong {
+  display: block;
+  font-size: 54px;
+  margin: 12px 0;
+}
+
+.progressCard div {
+  height: 12px;
+  border-radius: 6px;
+  background: #e7ded0;
+  overflow: hidden;
+}
+
+.progressCard i {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  background: #3f7d58;
+}
+
+.emptyState {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  min-height: 300px;
+  align-content: center;
+}
+
+@media (max-width: 1100px) {
+  .authPanel,
+  .siteHeader,
+  .taskWorkspace,
+  .templateWorkspace,
+  .gridTwo {
+    grid-template-columns: 1fr;
+  }
+
+  .accountBadge {
+    justify-self: start;
+    text-align: left;
+  }
+
+  .detailPanel {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .siteShell,
+  .authPage {
+    padding: 14px;
+  }
+
+  .message.toast {
+    top: 76px;
+    right: 14px;
+  }
+
+  .brandBlock {
+    min-height: auto;
+    padding: 28px;
+  }
+
+  .brandBlock h1 {
+    font-size: 42px;
+  }
+
+  .metrics,
+  .calendarBoard.week,
+  .calendarBoard.month,
+  .calendarToolbar,
+  .formGrid,
+  .formGrid.compact,
+  .detailGrid,
+  .taskList article,
+  .templateList article,
+  .sectionHead {
+    grid-template-columns: 1fr;
+  }
+
+  .wide {
+    grid-column: auto;
+  }
+
+  .repeatEditor {
+    grid-column: auto;
+  }
+
+  .weekdayPicker {
+    grid-template-columns: repeat(7, minmax(34px, 1fr));
+  }
 }

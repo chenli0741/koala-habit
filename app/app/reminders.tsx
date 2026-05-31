@@ -1,19 +1,22 @@
 import { Link } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 import { reminders } from "../data/demo";
+import { useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
 
 export default function RemindersScreen() {
+  const { t } = useKoalaStore();
+
   return (
     <View style={shared.screen}>
       <View style={shared.pageHeader}>
         <View>
-          <Text style={shared.kicker}>Reminders</Text>
-          <Text style={shared.title}>Gentle nudges, not yelling</Text>
-          <Text style={shared.subtitle}>Local notification copy for the first version.</Text>
+          <Text style={shared.kicker}>{t("reminders")}</Text>
+          <Text style={shared.title}>{t("gentleNudges")}</Text>
+          <Text style={shared.subtitle}>{t("localNotificationCopy")}</Text>
         </View>
         <Link href="/" style={shared.navButton}>
-          <Text style={shared.navButtonText}>Back Today</Text>
+          <Text style={shared.navButtonText}>{t("backToday")}</Text>
         </Link>
       </View>
 
@@ -21,13 +24,13 @@ export default function RemindersScreen() {
         <View style={[shared.card, styles.messageCard]}>
           <Text style={styles.bell}>🔔</Text>
           <Text style={styles.messageTitle}>“阅读时间到了哦～”</Text>
-          <Text style={styles.messageBody}>The first version will schedule local reminders on the device.</Text>
+          <Text style={styles.messageBody}>{t("localNotificationCopy")}</Text>
         </View>
         <View style={styles.list}>
           {reminders.map((reminder) => (
             <View key={reminder.id} style={shared.card}>
               <Text style={styles.time}>{reminder.time}</Text>
-              <Text style={styles.title}>{reminder.title}</Text>
+              <Text style={styles.title}>{t(`reminder${capitalize(reminder.id)}`)}</Text>
             </View>
           ))}
         </View>
@@ -79,3 +82,7 @@ const styles = StyleSheet.create({
     marginTop: 8
   }
 });
+
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}

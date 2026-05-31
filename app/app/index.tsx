@@ -1,41 +1,119 @@
-import { Link } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
-import { childProfile, historyStats, missionStatusLabel, missions } from "../data/demo";
+import { Link, Redirect } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { fetchMissions } from "../data/api";
+import { childProfile, Mission } from "../data/demo";
+import { profileForChild, useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
 
+type TaskViewMode = "day" | "week";
+type CalendarDay = {
+  dayNumber: number;
+  key: string;
+  label: string;
+};
+
+const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
 export default function HomeScreen() {
+  const { activeChild, completedCount, isSessionReady, missions, parent, t, todayEnergy } = useKoalaStore();
+  const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>("day");
+  const [calendarMissions, setCalendarMissions] = useState<Mission[]>([]);
+  const [isCalendarLoading, setIsCalendarLoading] = useState(false);
+  const profile = profileForChild(activeChild);
+  const totalTasks = missions.length;
+  const today = useMemo(() => todayKey(), []);
+  const calendarDays = useMemo(() => weekDaysForDate(new Date()), []);
+  const scheduleMissions = taskViewMode === "day" ? missions : calendarMissions;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadCalendarMissions() {
+      if (taskViewMode === "day") {
+        setCalendarMissions([]);
+        return;
+      }
+
+      if (!activeChild || calendarDays.length === 0) {
+        setCalendarMissions([]);
+        return;
+      }
+
+      setIsCalendarLoading(true);
+
+      try {
+        const nextMissions = await fetchMissions(activeChild.id, calendarDays[0].key, calendarDays[calendarDays.length - 1].key);
+
+        if (isMounted) {
+          setCalendarMissions(nextMissions);
+        }
+      } catch {
+        if (isMounted) {
+          setCalendarMissions([]);
+        }
+      } finally {
+        if (isMounted) {
+          setIsCalendarLoading(false);
+        }
+      }
+    }
+
+    void loadCalendarMissions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeChild, calendarDays, taskViewMode]);
+
+  if (!isSessionReady) {
+    return (
+      <View style={styles.screen}>
+        <Text style={styles.logo}>Koala Habit</Text>
+      </View>
+    );
+  }
+
+  if (!parent) {
+    return <Redirect href="/auth" />;
+  }
+
+  if (!activeChild) {
+    return <Redirect href="/auth/child-pin" />;
+  }
+
   return (
     <View style={styles.screen}>
       <View style={styles.sidebar}>
         <Text style={styles.logo}>Koala Habit</Text>
         <View style={styles.childCard}>
           <KoalaAvatar />
-          <Text style={styles.childName}>{childProfile.name}'s Day</Text>
-          <Text style={styles.childSubtext}>Earn leaves, unlock play, grow together.</Text>
+          <Text style={styles.childName}>{profile.name}</Text>
+          <Text style={styles.childSubtext}>{t("growthTree")}</Text>
         </View>
         <View style={styles.energyCard}>
-          <Text style={styles.energyLabel}>Today Energy</Text>
-          <Text style={styles.energyValue}>⭐ {childProfile.todayEnergy}</Text>
-          <Text style={styles.energyMeta}>Reading streak: {childProfile.readingStreakDays} days</Text>
+          <Text style={styles.energyLabel}>{t("todayEnergy")}</Text>
+          <Text style={styles.energyValue}>⭐ {todayEnergy}</Text>
+          <Text style={styles.energyMeta}>{t("readingStreak")}: {profile.readingStreakDays}</Text>
         </View>
       </View>
 
       <View style={styles.main}>
         <View style={styles.header}>
           <View style={styles.headerCopy}>
-            <Text style={shared.kicker}>Today</Text>
-            <Text style={shared.title}>🌞 Good Morning, {childProfile.name}!</Text>
-            <Text style={shared.subtitle}>Summer habits: reading, math, music, Chinese, and soccer.</Text>
+            <Text style={shared.kicker}>{t("today")}</Text>
+            <Text style={shared.title}>🌞 {t("goodMorning")}, {profile.name}!</Text>
+            <Text style={shared.subtitle}>{t("summerHabits")}</Text>
           </View>
           <View style={styles.headerActions}>
-            <Link href="/auth" style={styles.navButtonLight}>
-              <Text style={styles.navButtonLightText}>Account Setup</Text>
-            </Link>
             <Link href="/parent" style={shared.navButtonAlt}>
-              <Text style={shared.navButtonAltText}>Parent</Text>
+              <Text style={shared.navButtonAltText}>{t("parent")}</Text>
+            </Link>
+            <Link href="/auth/child-pin" style={shared.navButtonAlt}>
+              <Text style={shared.navButtonAltText}>{t("switchChild")}</Text>
             </Link>
             <Link href="/growth-tree" style={shared.navButton}>
-              <Text style={shared.navButtonText}>Growth Tree</Text>
+              <Text style={shared.navButtonText}>{t("growthTree")}</Text>
             </Link>
           </View>
         </View>
@@ -43,52 +121,184 @@ export default function HomeScreen() {
         <View style={styles.contentGrid}>
           <View style={styles.missionPanel}>
             <View style={styles.panelHeader}>
-              <Text style={styles.panelTitle}>Today Tasks</Text>
-              <Link href="/history" style={styles.smallLink}>
-                <Text style={styles.smallLinkText}>History</Text>
-              </Link>
-            </View>
-            {missions.map((mission) => {
-              const percent = Math.round((mission.progress / mission.total) * 100);
-              return (
-                <Link key={mission.id} href={`/mission/${mission.id}`} style={styles.missionCard}>
-                  <Text style={styles.missionIcon}>{mission.icon}</Text>
-                  <View style={styles.missionBody}>
-                    <View style={styles.missionTitleRow}>
-                      <Text style={styles.missionLabel}>{mission.title}</Text>
-                      <Text style={styles.status}>{missionStatusLabel(mission.status)}</Text>
-                    </View>
-                    <Text style={styles.missionDetail}>{mission.target}</Text>
-                    <View style={styles.progressTrack}>
-                      <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
-                    </View>
-                  </View>
-                  <Text style={styles.missionCount}>
-                    +{mission.energy}
-                  </Text>
+              <View>
+                <Text style={styles.panelTitle}>{taskViewMode === "day" ? t("todayTasks") : t("taskCalendar")}</Text>
+                <TaskViewSwitch value={taskViewMode} onChange={setTaskViewMode} t={t} />
+              </View>
+              <View style={styles.panelActions}>
+                <Link href="/parent" style={styles.smallLink}>
+                  <Text style={styles.smallLinkText}>{t("manage")}</Text>
                 </Link>
-              );
-            })}
+                <Link href="/history" style={styles.smallLink}>
+                  <Text style={styles.smallLinkText}>{t("history")}</Text>
+                </Link>
+              </View>
+            </View>
+            <TaskSchedule
+              calendarDays={calendarDays}
+              isLoading={isCalendarLoading}
+              missions={scheduleMissions}
+              t={t}
+              today={today}
+              viewMode={taskViewMode}
+            />
           </View>
 
           <View style={styles.companionPanel}>
-            <Text style={styles.panelTitle}>Growth Tree</Text>
+            <Text style={styles.panelTitle}>{t("growthTree")}</Text>
             <LargeKoala />
-            <Text style={styles.companionName}>Lv{childProfile.treeLevel} Young Tree</Text>
+            <Text style={styles.companionName}>Lv{childProfile.treeLevel} {t("youngTree")}</Text>
             <Text style={styles.companionText}>
-              {historyStats.todayCompleted}/{historyStats.totalToday} tasks finished today. Complete more tasks to grow leaves.
+              {completedCount}/{totalTasks} {t("todayComplete")}
             </Text>
             <View style={styles.growthTrack}>
               <View style={[styles.growthFill, { width: `${childProfile.treeGrowth}%` }]} />
             </View>
             <Link href="/reminders" style={styles.reminderLink}>
-              <Text style={styles.reminderText}>Reminders</Text>
+              <Text style={styles.reminderText}>{t("reminders")}</Text>
             </Link>
           </View>
         </View>
       </View>
     </View>
   );
+}
+
+function TaskViewSwitch({ onChange, t, value }: { onChange: (value: TaskViewMode) => void; t: (key: string) => string; value: TaskViewMode }) {
+  return (
+    <View style={styles.viewSwitch}>
+      {(["day", "week"] as TaskViewMode[]).map((mode) => (
+        <Pressable
+          key={mode}
+          onPress={() => onChange(mode)}
+          style={[styles.viewSwitchButton, value === mode && styles.viewSwitchButtonActive]}
+        >
+          <Text style={[styles.viewSwitchText, value === mode && styles.viewSwitchTextActive]}>{t(mode)}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function TaskSchedule({
+  calendarDays,
+  isLoading,
+  missions,
+  t,
+  today,
+  viewMode
+}: {
+  calendarDays: CalendarDay[];
+  isLoading: boolean;
+  missions: Mission[];
+  t: (key: string) => string;
+  today: string;
+  viewMode: TaskViewMode;
+}) {
+  if (isLoading) {
+    return (
+      <View style={styles.emptyState}>
+        <Text style={styles.emptyTitle}>{t("loading")}</Text>
+        <Text style={styles.emptyText}>{t("taskCalendar")}</Text>
+      </View>
+    );
+  }
+
+  if (missions.length === 0) {
+    return (
+      <View style={styles.emptyState}>
+        <Text style={styles.emptyTitle}>{t("noTasksYet")}</Text>
+        <Text style={styles.emptyText}>{t("askParentAddTask")}</Text>
+      </View>
+    );
+  }
+
+  if (viewMode === "week") {
+    return (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.weekBoard}>
+        {calendarDays.map((day) => {
+          const dayMissions = missionsForDate(missions, day.key);
+          const done = dayMissions.filter((mission) => mission.status === "done").length;
+          return (
+            <View key={day.key} style={[styles.weekColumn, day.key === today && styles.weekColumnToday]}>
+              <Text style={styles.weekDay}>{day.label}</Text>
+              <Text style={styles.weekMeta}>{day.dayNumber} · {done}/{dayMissions.length}</Text>
+              {dayMissions.slice(0, 5).map((mission) => (
+                <View key={mission.id} style={styles.weekTaskPill}>
+                  <Text style={styles.weekTaskIcon}>{mission.icon}</Text>
+                  <Text numberOfLines={1} style={styles.weekTaskText}>{mission.title}</Text>
+                </View>
+              ))}
+            </View>
+          );
+        })}
+      </ScrollView>
+    );
+  }
+
+  return (
+    <>
+      {missions.map((mission) => {
+        const percent = Math.round((mission.progress / mission.total) * 100);
+        return (
+          <Link key={mission.id} href={`/mission/${mission.id}`} style={styles.missionCard}>
+            <Text style={styles.missionIcon}>{mission.icon}</Text>
+            <View style={styles.missionBody}>
+              <View style={styles.missionTitleRow}>
+                <Text style={styles.missionLabel}>{mission.title}</Text>
+                <Text style={styles.status}>{missionStatusText(mission.status, t)}</Text>
+              </View>
+              <Text style={styles.missionDetail}>{mission.target}</Text>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
+              </View>
+            </View>
+            <Text style={styles.missionCount}>
+              +{mission.energy}
+            </Text>
+          </Link>
+        );
+      })}
+    </>
+  );
+}
+
+function missionStatusText(status: Mission["status"], t: (key: string) => string) {
+  return status === "done" ? t("done") : status === "in_progress" ? t("inProgress") : t("todo");
+}
+
+function missionsForDate(missions: Mission[], dateKey: string) {
+  return missions.filter((mission) => mission.occurrenceDate.slice(0, 10) === dateKey);
+}
+
+function weekDaysForDate(date: Date): CalendarDay[] {
+  const monday = new Date(date);
+  const day = monday.getDay();
+  const daysUntilNextMonday = ((8 - day) % 7) || 7;
+  monday.setDate(monday.getDate() + daysUntilNextMonday);
+
+  return weekDays.map((label, index) => {
+    const nextDate = new Date(monday);
+    nextDate.setDate(monday.getDate() + index);
+
+    return {
+      dayNumber: nextDate.getDate(),
+      key: dateKey(nextDate),
+      label
+    };
+  });
+}
+
+function todayKey() {
+  return dateKey(new Date());
+}
+
+function dateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function KoalaAvatar() {
@@ -222,22 +432,6 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingTop: 6
   },
-  navButtonLight: {
-    minHeight: 48,
-    borderRadius: 24,
-    paddingHorizontal: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: palette.line,
-    textDecorationLine: "none"
-  },
-  navButtonLightText: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: palette.ink
-  },
   contentGrid: {
     flex: 1,
     flexDirection: "row",
@@ -266,6 +460,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 16
+  },
+  viewSwitch: {
+    flexDirection: "row",
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FAF7F0",
+    marginTop: 10,
+    overflow: "hidden"
+  },
+  viewSwitchButton: {
+    minHeight: 34,
+    minWidth: 62,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10
+  },
+  viewSwitchButtonActive: {
+    backgroundColor: palette.deepGreen
+  },
+  viewSwitchText: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  viewSwitchTextActive: {
+    color: "#FFFFFF"
+  },
+  panelActions: {
+    flexDirection: "row",
+    gap: 8
   },
   smallLink: {
     borderRadius: 18,
@@ -337,6 +563,73 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
     color: palette.ink
+  },
+  emptyState: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E7DED0",
+    padding: 20,
+    backgroundColor: "#FAF7F0"
+  },
+  emptyTitle: {
+    color: palette.ink,
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  emptyText: {
+    color: palette.muted,
+    fontSize: 15,
+    marginTop: 6
+  },
+  weekBoard: {
+    gap: 10,
+    paddingBottom: 4
+  },
+  weekColumn: {
+    width: 132,
+    minHeight: 260,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E7DED0",
+    backgroundColor: "#FAF7F0",
+    padding: 10
+  },
+  weekColumnToday: {
+    borderColor: palette.green,
+    backgroundColor: "#EEF3EA"
+  },
+  weekDay: {
+    color: palette.ink,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  weekMeta: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: "900",
+    marginTop: 2,
+    marginBottom: 10
+  },
+  weekTaskPill: {
+    minHeight: 36,
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E7DED0",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 8,
+    marginBottom: 8
+  },
+  weekTaskIcon: {
+    fontSize: 16
+  },
+  weekTaskText: {
+    flex: 1,
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: "900"
   },
   bigCompanion: {
     width: 230,

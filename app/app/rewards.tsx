@@ -1,41 +1,44 @@
 import { Link } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
-import { childProfile, encouragements, historyStats, missions } from "../data/demo";
+import { encouragements, historyStats } from "../data/demo";
+import { profileForChild, useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
 
-const earnedEnergy = missions.reduce((sum, mission) => sum + (mission.status === "done" ? mission.energy : 0), 0);
-const possibleEnergy = missions.reduce((sum, mission) => sum + mission.energy, 0);
-const rewardCards = [
-  { id: "today", label: "Today Energy", value: `${childProfile.todayEnergy}`, detail: "Energy grows when tasks are completed." },
-  { id: "week", label: "Weekly Energy", value: `${historyStats.energyThisWeek}`, detail: "Family progress across the week." },
-  { id: "encourage", label: "Encouragement", value: "TTS later", detail: encouragements[1] }
-];
-
 export default function RewardsScreen() {
+  const { activeChild, missions, t, todayEnergy } = useKoalaStore();
+  const profile = profileForChild(activeChild);
+  const possibleEnergy = missions.reduce((sum, mission) => sum + mission.energy, 0);
+  const percent = possibleEnergy ? Math.round((todayEnergy / possibleEnergy) * 100) : 0;
+  const rewardCards = [
+    { id: "today", label: t("todayEnergy"), value: `${todayEnergy}`, detail: t("energyEarned") },
+    { id: "week", label: t("week"), value: `${historyStats.energyThisWeek}`, detail: t("weeklyRate") },
+    { id: "encourage", label: t("goodMorning"), value: "TTS", detail: encouragements[1] }
+  ];
+
   return (
     <View style={shared.screen}>
       <View style={shared.pageHeader}>
         <View>
-          <Text style={shared.kicker}>Rewards</Text>
-          <Text style={shared.title}>Play time grows from effort</Text>
-          <Text style={shared.subtitle}>Entertainment is unlocked by balanced learning, movement, and life habits.</Text>
+          <Text style={shared.kicker}>{t("rewards")}</Text>
+          <Text style={shared.title}>{t("playTimeGrows")}</Text>
+          <Text style={shared.subtitle}>{t("entertainmentUnlocked")}</Text>
         </View>
         <Link href="/" style={shared.navButton}>
-          <Text style={shared.navButtonText}>Back Home</Text>
+          <Text style={shared.navButtonText}>{t("backHome")}</Text>
         </Link>
       </View>
 
       <View style={styles.grid}>
         <View style={[shared.card, styles.summary]}>
-          <Text style={styles.summaryLabel}>Energy earned</Text>
+          <Text style={styles.summaryLabel}>{t("energyEarned")}</Text>
           <Text style={styles.summaryValue}>
-            {earnedEnergy}/{possibleEnergy}
+            {todayEnergy}/{possibleEnergy}
           </Text>
           <View style={styles.leafTrack}>
-            <View style={[styles.leafFill, { width: `${Math.round((earnedEnergy / possibleEnergy) * 100)}%` }]} />
+            <View style={[styles.leafFill, { width: `${percent}%` }]} />
           </View>
           <Text style={styles.summaryText}>
-            {childProfile.companionName}'s growth tree gets brighter with each finished task.
+            {profile.companionName}'s growth tree gets brighter with each finished task.
           </Text>
         </View>
 

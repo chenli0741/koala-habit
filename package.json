@@ -8,9 +8,23 @@
     "server"
   ],
   "scripts": {
-    "app": "npm run start -w app",
+    "app": "scripts/start-ipad.sh",
+    "app:expo-go": "npm run start -w app",
+    "backend": "scripts/start-backend.sh",
+    "restart": "scripts/restart-dev.sh",
     "web": "npm run dev -w web",
     "server": "npm run dev -w server",
+    "test": "npm run typecheck",
+    "test:app": "npm run typecheck -w app",
+    "test:server": "npm run typecheck -w server",
+    "test:web": "npm run typecheck -w web",
     "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "main": "expo-router/entry",
+  "dependencies": {
+    "expo": "~55.0.26",
+    "expo-dev-client": "~55.0.35",
+    "react": "19.2.0",
+    "react-native": "0.83.6"
   }
 }

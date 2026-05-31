@@ -1,19 +1,22 @@
 import { Link } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 import { childProfile, growthStages } from "../data/demo";
+import { useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
 
 export default function GrowthTreeScreen() {
+  const { t } = useKoalaStore();
+
   return (
     <View style={shared.screen}>
       <View style={shared.pageHeader}>
         <View>
-          <Text style={shared.kicker}>Growth Tree</Text>
-          <Text style={shared.title}>Every task grows the tree</Text>
-          <Text style={shared.subtitle}>Complete tasks to glow, grow leaves, and collect stars.</Text>
+          <Text style={shared.kicker}>{t("growthTree")}</Text>
+          <Text style={shared.title}>{t("everyTaskGrowsTree")}</Text>
+          <Text style={shared.subtitle}>{t("everyTaskGrowsTree")}</Text>
         </View>
         <Link href="/" style={shared.navButton}>
-          <Text style={shared.navButtonText}>Back Today</Text>
+          <Text style={shared.navButtonText}>{t("backToday")}</Text>
         </Link>
       </View>
 
@@ -34,7 +37,7 @@ export default function GrowthTreeScreen() {
             <View style={styles.trunk} />
             <View style={styles.ground} />
           </View>
-          <Text style={styles.level}>Lv{childProfile.treeLevel} Young Tree</Text>
+          <Text style={styles.level}>Lv{childProfile.treeLevel} {t("youngTree")}</Text>
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${childProfile.treeGrowth}%` }]} />
           </View>
@@ -44,8 +47,8 @@ export default function GrowthTreeScreen() {
           {growthStages.map((stage) => (
             <View key={stage.level} style={[shared.card, stage.level === childProfile.treeLevel && styles.activeStage]}>
               <Text style={styles.stageLevel}>Lv{stage.level}</Text>
-              <Text style={styles.stageTitle}>{stage.title}</Text>
-              <Text style={styles.stageDescription}>{stage.description}</Text>
+              <Text style={styles.stageTitle}>{t(stageTitleKey(stage.level))}</Text>
+              <Text style={styles.stageDescription}>{t(`${stageTitleKey(stage.level)}Description`)}</Text>
             </View>
           ))}
         </View>
@@ -182,3 +185,7 @@ const styles = StyleSheet.create({
     marginTop: 6
   }
 });
+
+function stageTitleKey(level: number) {
+  return ["stageSeed", "stageSprout", "stageYoungTree", "stageBloomingTree", "stageForest"][level - 1] ?? "stageSeed";
+}

@@ -1,50 +1,86 @@
-import { Link } from "expo-router";
-import { StyleSheet, Text, TextInput, View } from "react-native";
-import { demoChildren } from "../../data/auth";
+import { Link, router } from "expo-router";
+import { useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useKoalaStore } from "../../data/store";
 import { palette, shared } from "../../ui/styles";
 
 export default function CreateChildScreen() {
+  const { children, createChild, t } = useKoalaStore();
+  const [name, setName] = useState("Caitlyn");
+  const [age, setAge] = useState("9");
+  const [avatar, setAvatar] = useState("Koala");
+  const [grade, setGrade] = useState("3");
+  const [pin, setPin] = useState("1234");
+  const [error, setError] = useState("");
+
+  async function handleCreateChild() {
+    if (!/^\d{4,6}$/.test(pin)) {
+      setError(t("numericPin"));
+      return;
+    }
+
+    setError("");
+    await createChild({
+      name,
+      age: Number(age) || 0,
+      avatar,
+      grade: Number(grade) || 0,
+      pin
+    });
+    router.push("/auth/child-pin");
+  }
+
   return (
     <View style={shared.screen}>
       <View style={shared.pageHeader}>
         <View>
-          <Text style={shared.kicker}>Child Account</Text>
-          <Text style={shared.title}>Parent creates the child login</Text>
-          <Text style={shared.subtitle}>Children use a simple numeric PIN instead of email or Google.</Text>
+          <Text style={shared.kicker}>{t("childAccount")}</Text>
+          <Text style={shared.title}>{t("parentCreatesChildLogin")}</Text>
+          <Text style={shared.subtitle}>{t("childrenNoEmail")}</Text>
         </View>
         <Link href="/auth/parent-apple" style={shared.navButton}>
-          <Text style={shared.navButtonText}>Back</Text>
+          <Text style={shared.navButtonText}>{t("back")}</Text>
         </Link>
       </View>
 
       <View style={styles.grid}>
         <View style={[shared.card, styles.form]}>
-          <Text style={styles.cardTitle}>New child profile</Text>
-          <Text style={styles.label}>Child name</Text>
-          <TextInput style={styles.input} value="Caitlyn" editable={false} />
-          <Text style={styles.label}>Age</Text>
-          <TextInput style={styles.input} value="9" editable={false} keyboardType="number-pad" />
-          <Text style={styles.label}>Avatar</Text>
-          <TextInput style={styles.input} value="Koala avatar" editable={false} />
-          <Text style={styles.label}>Grade</Text>
-          <TextInput style={styles.input} value="3" editable={false} keyboardType="number-pad" />
-          <Text style={styles.label}>Numeric PIN</Text>
-          <TextInput style={styles.input} value="1234" editable={false} keyboardType="number-pad" secureTextEntry />
-          <Link href="/auth/child-pin" style={shared.navButtonAlt}>
-            <Text style={shared.navButtonAltText}>Try Child Login</Text>
-          </Link>
+          <Text style={styles.cardTitle}>{t("newChildProfile")}</Text>
+          <Text style={styles.label}>{t("childName")}</Text>
+          <TextInput style={styles.input} value={name} onChangeText={setName} placeholder={t("childName")} />
+          <Text style={styles.label}>{t("age")}</Text>
+          <TextInput style={styles.input} value={age} onChangeText={setAge} keyboardType="number-pad" placeholder="9" />
+          <Text style={styles.label}>{t("avatar")}</Text>
+          <TextInput style={styles.input} value={avatar} onChangeText={setAvatar} placeholder="Koala" />
+          <Text style={styles.label}>{t("grade")}</Text>
+          <TextInput style={styles.input} value={grade} onChangeText={setGrade} keyboardType="number-pad" placeholder="3" />
+          <Text style={styles.label}>{t("numericPin")}</Text>
+          <TextInput
+            style={styles.input}
+            value={pin}
+            onChangeText={(value) => setPin(value.replace(/\D/g, ""))}
+            keyboardType="number-pad"
+            maxLength={6}
+            secureTextEntry
+          />
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          <Pressable style={shared.navButtonAlt} onPress={handleCreateChild}>
+            <Text style={shared.navButtonAltText}>{t("createAndTryLogin")}</Text>
+          </Pressable>
         </View>
 
         <View style={[shared.card, styles.list]}>
-          <Text style={styles.cardTitle}>Family children</Text>
-          {demoChildren.map((child) => (
+          <Text style={styles.cardTitle}>{t("familyChildren")}</Text>
+          {children.map((child) => (
             <View key={child.id} style={styles.childRow}>
               <View style={styles.childAvatar}>
                 <Text style={styles.childInitial}>{child.name[0]}</Text>
               </View>
               <View>
                 <Text style={styles.childName}>{child.name}</Text>
-                <Text style={styles.childMeta}>Grade {child.grade} · {child.pinHint}</Text>
+                <Text style={styles.childMeta}>
+                  Grade {child.grade} · {child.pin ? `PIN ${child.pin}` : `PIN length ${child.pinLength ?? 4}`}
+                </Text>
               </View>
             </View>
           ))}
@@ -122,5 +158,11 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 15,
     marginTop: 4
+  },
+  errorText: {
+    color: "#B75F4A",
+    fontSize: 14,
+    fontWeight: "900",
+    marginBottom: 10
   }
 });

@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "03ebe280-ec86-4b90-be02-967f59678b97"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.globjoy.koalahabit",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "scheme": "koala-habit"
+  }
+}

@@ -1,18 +1,56 @@
 export type MissionCategory = "reading" | "language" | "math" | "music" | "sport";
-export type MissionStatus = "done" | "todo" | "in_progress";
+export type MissionStatus = "done" | "todo" | "in_progress" | "expired";
+export type OccurrenceStatus = "pending" | "done" | "skipped" | "expired";
+
+export type RewardRecord = {
+  id: string;
+  points: number;
+  reason: string;
+  source: "completion" | "streak" | "bonus" | "parent";
+};
+
+export type CompletionRecord = {
+  aiScore?: number;
+  actualMinutes?: number;
+  completedAt?: string;
+  parentConfirmed?: boolean;
+};
+
+export type TaskPlanDetail = {
+  attachments: TaskAttachment[];
+  id: string;
+  materials: string[];
+  notes: string;
+  summary: string;
+  vocabulary: string[];
+};
+
+export type TaskAttachment = {
+  id: string;
+  mimeType?: string;
+  name: string;
+  size?: number;
+  uri: string;
+};
 
 export type Mission = {
   id: string;
+  templateId: string;
+  occurrenceDate: string;
   icon: string;
   title: string;
   category: MissionCategory;
   target: string;
   detail: string;
   goals: string[];
+  planDetail: TaskPlanDetail;
+  completionRecord?: CompletionRecord;
+  rewardRecords: RewardRecord[];
   energy: number;
   progress: number;
   total: number;
   status: MissionStatus;
+  occurrenceStatus: OccurrenceStatus;
   tone: string;
 };
 
@@ -31,72 +69,145 @@ export const childProfile = {
 export const missions: Mission[] = [
   {
     id: "english-reading",
+    templateId: "template-english-reading",
+    occurrenceDate: "2026-07-01",
     icon: "📘",
     title: "English Reading",
     category: "reading",
     target: "Read 20 min",
-    detail: "Read for 20 minutes and learn 3 new words.",
-    goals: ["Read 20 minutes", "Learn 3 new words", "Tell one favorite sentence"],
+    detail: "Charlotte's Web pages 12-15; learn whisper, forest, adventure.",
+    goals: ["Read pages 12-15", "Learn 3 new words", "Tell one favorite sentence"],
+    planDetail: {
+      id: "plan-english-reading",
+      attachments: [
+        {
+          id: "attachment-english-vocab",
+          mimeType: "application/pdf",
+          name: "Charlotte vocabulary sheet.pdf",
+          uri: "https://example.com/charlotte-vocabulary-sheet.pdf"
+        }
+      ],
+      summary: "Charlotte's Web pages 12-15",
+      materials: ["Charlotte's Web"],
+      notes: "Tell one favorite sentence after reading.",
+      vocabulary: ["whisper", "forest", "adventure"]
+    },
+    completionRecord: {
+      actualMinutes: 22,
+      aiScore: 85,
+      completedAt: "2026-07-01T19:30:00.000Z",
+      parentConfirmed: true
+    },
+    rewardRecords: [{ id: "reward-english-reading", points: 10, reason: "Completed reading", source: "completion" }],
     energy: 10,
     progress: 1,
     total: 1,
     status: "done",
+    occurrenceStatus: "done",
     tone: "#3F7D58"
   },
   {
     id: "chinese",
+    templateId: "template-chinese",
+    occurrenceDate: "2026-07-01",
     icon: "🀄",
     title: "Chinese",
     category: "language",
     target: "Poem or Chinese reading",
-    detail: "Read a Chinese story or practice one short poem.",
-    goals: ["Read aloud", "Practice one poem", "Explain one new phrase"],
+    detail: "Practice 暖、愿、影 and read one short story aloud.",
+    goals: ["Read aloud", "Practice 暖、愿、影", "Explain one new phrase"],
+    planDetail: {
+      id: "plan-chinese",
+      attachments: [],
+      summary: "Practice three Chinese characters",
+      materials: ["Chinese reader"],
+      notes: "Write each character three times.",
+      vocabulary: ["暖", "愿", "影"]
+    },
+    rewardRecords: [],
     energy: 10,
     progress: 0,
     total: 1,
     status: "todo",
+    occurrenceStatus: "pending",
     tone: "#B75F4A"
   },
   {
     id: "math",
+    templateId: "template-math",
+    occurrenceDate: "2026-07-01",
     icon: "➕",
     title: "Math",
     category: "math",
     target: "10 questions",
-    detail: "Finish 10 math questions and check mistakes carefully.",
-    goals: ["Finish 10 questions", "Check all answers", "Fix mistakes"],
+    detail: "Singapore Math workbook page 24, two-digit multiplication.",
+    goals: ["Finish page 24", "Check all answers", "Fix mistakes"],
+    planDetail: {
+      id: "plan-math",
+      attachments: [],
+      summary: "Singapore Math workbook page 24",
+      materials: ["Singapore Math workbook"],
+      notes: "Focus on two-digit multiplication and write corrections.",
+      vocabulary: []
+    },
+    rewardRecords: [],
     energy: 10,
     progress: 6,
     total: 10,
     status: "in_progress",
+    occurrenceStatus: "pending",
     tone: "#4B6FA8"
   },
   {
     id: "piano",
+    templateId: "template-piano",
+    occurrenceDate: "2026-07-01",
     icon: "🎹",
     title: "Piano",
     category: "music",
     target: "Practice 20 min",
-    detail: "Practice piano for 20 minutes with a steady rhythm.",
+    detail: "Practice assigned piece bars 9-16 with a steady rhythm.",
     goals: ["Warm up", "Practice assigned piece", "Play one part smoothly"],
+    planDetail: {
+      id: "plan-piano",
+      attachments: [],
+      summary: "Assigned piece bars 9-16",
+      materials: ["Piano book"],
+      notes: "Slow tempo first, then play once smoothly.",
+      vocabulary: []
+    },
+    rewardRecords: [],
     energy: 10,
     progress: 0,
     total: 1,
     status: "todo",
+    occurrenceStatus: "pending",
     tone: "#8B5E83"
   },
   {
     id: "soccer",
+    templateId: "template-soccer",
+    occurrenceDate: "2026-07-01",
     icon: "⚽",
     title: "Soccer",
     category: "sport",
     target: "Soccer training",
-    detail: "Do soccer drills or outdoor play with movement.",
+    detail: "Ball control drills: 20 touches, dribble cones, short passing.",
     goals: ["Warm up safely", "Practice ball control", "Drink water after training"],
+    planDetail: {
+      id: "plan-soccer",
+      attachments: [],
+      summary: "Ball control and short passing",
+      materials: ["Soccer ball", "Cones"],
+      notes: "Keep water nearby and stretch after training.",
+      vocabulary: []
+    },
+    rewardRecords: [],
     energy: 10,
     progress: 0,
     total: 1,
     status: "todo",
+    occurrenceStatus: "pending",
     tone: "#D8892B"
   }
 ];
@@ -108,6 +219,7 @@ export const taskTemplates = missions.map((mission) => ({
   category: mission.category,
   target: mission.target,
   energy: mission.energy,
+  rrule: "FREQ=DAILY",
   repeat: "Daily"
 }));
 
@@ -153,5 +265,7 @@ export function missionStatusLabel(status: MissionStatus) {
       return "Todo";
     case "in_progress":
       return "In progress";
+    case "expired":
+      return "Expired";
   }
 }

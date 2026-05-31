@@ -1,45 +1,66 @@
-import { Link } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
-import { demoParent } from "../../data/auth";
+import { Link, router } from "expo-router";
+import { useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useKoalaStore } from "../../data/store";
 import { palette, shared } from "../../ui/styles";
 
 export default function ParentAppleScreen() {
+  const { parent, signInParent, t } = useKoalaStore();
+  const [name, setName] = useState(parent?.name ?? "Chen");
+  const [email, setEmail] = useState(parent?.email ?? "parent@example.com");
+
+  async function handleSignIn() {
+    await signInParent(name, email);
+    router.push("/auth/create-child");
+  }
+
   return (
     <View style={shared.screen}>
       <View style={shared.pageHeader}>
         <View>
-          <Text style={shared.kicker}>Parent Login</Text>
-          <Text style={shared.title}>Apple creates the family account</Text>
+          <Text style={shared.kicker}>{t("parent")} {t("loginModel")}</Text>
+          <Text style={shared.title}>{t("appleCreatesFamily")}</Text>
           <Text style={shared.subtitle}>
             This is a product-flow placeholder for Apple Sign In. The backend exposes a mock parent Apple session endpoint.
           </Text>
         </View>
         <Link href="/auth" style={shared.navButton}>
-          <Text style={shared.navButtonText}>Back</Text>
+          <Text style={shared.navButtonText}>{t("back")}</Text>
         </Link>
       </View>
 
       <View style={styles.grid}>
         <View style={[shared.card, styles.appleCard]}>
           <Text style={styles.appleIcon}></Text>
-          <Text style={styles.cardTitle}>Continue with Apple</Text>
+          <Text style={styles.cardTitle}>{t("continueApple")}</Text>
           <Text style={styles.bodyText}>
-            Real Apple Sign In will exchange an identity token with `/auth/apple/parent`.
+            Enter parent details for this local demo account. Real Apple Sign In can exchange an identity token with the backend later.
           </Text>
           <View style={styles.profilePreview}>
-            <Text style={styles.label}>Demo signed-in parent</Text>
-            <Text style={styles.parentName}>{demoParent.name}</Text>
-            <Text style={styles.parentEmail}>{demoParent.email}</Text>
+            <Text style={styles.label}>{t("parentName")}</Text>
+            <TextInput style={styles.input} value={name} onChangeText={setName} placeholder={t("parentName")} />
+            <Text style={styles.label}>{t("email")}</Text>
+            <TextInput
+              autoCapitalize="none"
+              keyboardType="email-address"
+              onChangeText={setEmail}
+              placeholder="parent@example.com"
+              style={styles.input}
+              value={email}
+            />
           </View>
+          <Pressable style={styles.primaryAction} onPress={handleSignIn}>
+            <Text style={shared.navButtonText}>{t("signInCreateAccount")}</Text>
+          </Pressable>
         </View>
 
         <View style={[shared.card, styles.nextCard]}>
-          <Text style={styles.cardTitle}>Next step</Text>
+          <Text style={styles.cardTitle}>{t("nextStep")}</Text>
           <Text style={styles.bodyText}>
             After the parent session is created, the parent creates child accounts and assigns each child a numeric PIN.
           </Text>
           <Link href="/auth/create-child" style={shared.navButtonAlt}>
-            <Text style={shared.navButtonAltText}>Create Child Account</Text>
+          <Text style={shared.navButtonAltText}>{t("createChildAccount")}</Text>
           </Link>
         </View>
       </View>
@@ -89,6 +110,23 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 18,
     marginTop: 28
+  },
+  input: {
+    minHeight: 52,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FFFFFF",
+    color: palette.ink,
+    fontSize: 18,
+    fontWeight: "800",
+    paddingHorizontal: 14,
+    marginTop: 8,
+    marginBottom: 12
+  },
+  primaryAction: {
+    ...shared.navButton,
+    marginTop: 18
   },
   label: {
     color: palette.muted,

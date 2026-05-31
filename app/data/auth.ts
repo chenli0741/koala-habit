@@ -15,7 +15,7 @@ export const demoChildren = [
 ];
 
 export const authSteps = [
-  "Parent signs in with Apple",
+  "Parent signs in and keeps the family session on this device",
   "Parent creates a child profile",
-  "Child signs in with a numeric PIN"
+  "Child switches profile with a numeric PIN"
 ];

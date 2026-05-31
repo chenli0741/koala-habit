@@ -1,63 +1,61 @@
 import { Link } from "expo-router";
-import { StyleSheet, Text, TextInput, View } from "react-native";
-import { missions, taskTemplates } from "../data/demo";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Mission } from "../data/demo";
+import { profileForChild, useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
 
 export default function ParentScreen() {
+  const { activeChild, completeMission, completedCount, missions, t } = useKoalaStore();
+  const profile = profileForChild(activeChild);
+  const pendingMissions = missions.filter((mission) => mission.status !== "done");
+  const completedMissions = missions.filter((mission) => mission.status === "done");
+  const totalEnergy = completedMissions.reduce((sum, mission) => sum + mission.energy, 0);
+
   return (
     <View style={shared.screen}>
       <View style={shared.pageHeader}>
         <View>
-          <Text style={shared.kicker}>Parent</Text>
-          <Text style={shared.title}>Task management</Text>
-          <Text style={shared.subtitle}>Start from summer templates so parents do not need to configure everything.</Text>
+          <Text style={shared.kicker}>{t("parentCheckIn")}</Text>
+          <Text style={shared.title}>{profile.name}</Text>
+          <Text style={shared.subtitle}>{t("useIpadQuickReview")}</Text>
         </View>
         <Link href="/" style={shared.navButton}>
-          <Text style={shared.navButtonText}>Back Today</Text>
+          <Text style={shared.navButtonText}>{t("backToday")}</Text>
         </Link>
       </View>
 
       <View style={styles.grid}>
-        <View style={[shared.card, styles.templates]}>
-          <Text style={styles.cardTitle}>Default Templates</Text>
-          {taskTemplates.map((template) => (
-            <View key={template.id} style={styles.templateRow}>
-              <Text style={styles.templateIcon}>{template.icon}</Text>
-              <View style={styles.templateCopy}>
-                <Text style={styles.templateTitle}>{template.title}</Text>
-                <Text style={styles.templateMeta}>
-                  {template.target} · +{template.energy} Energy · {template.repeat}
-                </Text>
+        <View style={[shared.card, styles.summaryCard]}>
+          <Text style={styles.cardLabel}>{t("todayComplete")}</Text>
+          <Text style={styles.bigMetric}>{completedCount}/{missions.length}</Text>
+          <Text style={styles.summaryText}>{t("rewardEnergyEarned")}: {totalEnergy}</Text>
+          <View style={styles.webNotice}>
+            <Text style={styles.webNoticeTitle}>{t("webHandlesSetup")}</Text>
+            <Text style={styles.webNoticeText}>{t("webHandlesSetupDetail")}</Text>
+          </View>
+        </View>
+
+        <View style={[shared.card, styles.reviewCard]}>
+          <Text style={styles.cardTitle}>{t("quickConfirmations")}</Text>
+          {pendingMissions.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyTitle}>{t("nothingPending")}</Text>
+              <Text style={styles.emptyText}>{t("allTasksComplete")}</Text>
+            </View>
+          ) : pendingMissions.map((mission) => (
+            <View key={mission.id} style={styles.reviewRow}>
+              <Text style={styles.missionIcon}>{mission.icon}</Text>
+              <View style={styles.reviewCopy}>
+                <Text style={styles.reviewTitle}>{mission.title}</Text>
+                <Text style={styles.reviewMeta}>{mission.target} · {missionStatusText(mission.status, t)}</Text>
               </View>
-              <View style={styles.addButton}>
-                <Text style={styles.addText}>Add</Text>
-              </View>
+              <Pressable style={styles.confirmButton} onPress={() => completeMission(mission.id, { note: "Parent quick confirmed on iPad" })}>
+                <Text style={styles.confirmText}>{t("confirm")}</Text>
+              </Pressable>
             </View>
           ))}
         </View>
-
-        <View style={[shared.card, styles.form]}>
-          <Text style={styles.cardTitle}>Add Task</Text>
-          <Field label="Name" value="Piano" />
-          <Field label="Category" value="Music" />
-          <Field label="Goal" value="20 min" />
-          <Field label="Reward" value="10 Energy" />
-          <Field label="Repeat" value="Daily" />
-          <View style={styles.summary}>
-            <Text style={styles.summaryLabel}>Active tasks</Text>
-            <Text style={styles.summaryValue}>{missions.length}</Text>
-          </View>
-        </View>
       </View>
-    </View>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <TextInput style={styles.input} value={value} editable={false} />
     </View>
   );
 }
@@ -68,12 +66,47 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 22
   },
-  templates: {
-    flex: 1.25
+  summaryCard: {
+    flex: 0.9,
+    backgroundColor: palette.deepGreen
   },
-  form: {
-    flex: 1,
-    backgroundColor: palette.lavender
+  reviewCard: {
+    flex: 1.3
+  },
+  cardLabel: {
+    color: "#DDE8DC",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  bigMetric: {
+    color: "#FFFFFF",
+    fontSize: 88,
+    lineHeight: 100,
+    fontWeight: "900",
+    marginTop: 12
+  },
+  summaryText: {
+    color: "#DDE8DC",
+    fontSize: 18,
+    fontWeight: "800",
+    marginTop: 8
+  },
+  webNotice: {
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    padding: 16,
+    marginTop: 28
+  },
+  webNoticeTitle: {
+    color: palette.ink,
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  webNoticeText: {
+    color: palette.muted,
+    fontSize: 16,
+    lineHeight: 23,
+    marginTop: 8
   },
   cardTitle: {
     color: palette.ink,
@@ -81,80 +114,64 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: 16
   },
-  templateRow: {
+  reviewRow: {
+    minHeight: 76,
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 78,
+    gap: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#EFE8DD",
-    gap: 14
+    borderBottomColor: "#EFE8DD"
   },
-  templateIcon: {
-    width: 44,
-    fontSize: 30,
+  missionIcon: {
+    width: 42,
+    fontSize: 28,
     textAlign: "center"
   },
-  templateCopy: {
+  reviewCopy: {
     flex: 1
   },
-  templateTitle: {
+  reviewTitle: {
     color: palette.ink,
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: "900"
   },
-  templateMeta: {
+  reviewMeta: {
     color: palette.muted,
     fontSize: 14,
     marginTop: 4
   },
-  addButton: {
-    minWidth: 72,
-    minHeight: 40,
-    borderRadius: 20,
-    backgroundColor: palette.green,
+  confirmButton: {
+    minHeight: 42,
+    borderRadius: 21,
+    backgroundColor: palette.gold,
     alignItems: "center",
-    justifyContent: "center"
+    justifyContent: "center",
+    paddingHorizontal: 16
   },
-  addText: {
-    color: "#FFFFFF",
+  confirmText: {
+    color: "#392D12",
     fontSize: 14,
     fontWeight: "900"
   },
-  field: {
-    marginBottom: 12
-  },
-  label: {
-    color: palette.muted,
-    fontSize: 14,
-    fontWeight: "900",
-    marginBottom: 7
-  },
-  input: {
-    minHeight: 52,
+  emptyBox: {
     borderRadius: 8,
+    backgroundColor: "#FAF7F0",
     borderWidth: 1,
-    borderColor: "#D3C5D8",
-    backgroundColor: "#FFFFFF",
+    borderColor: palette.line,
+    padding: 18
+  },
+  emptyTitle: {
     color: palette.ink,
-    fontSize: 18,
-    fontWeight: "800",
-    paddingHorizontal: 14
-  },
-  summary: {
-    borderRadius: 8,
-    backgroundColor: "#FFFFFF",
-    padding: 16,
-    marginTop: 12
-  },
-  summaryLabel: {
-    color: palette.muted,
-    fontSize: 14,
+    fontSize: 20,
     fontWeight: "900"
   },
-  summaryValue: {
-    color: palette.ink,
-    fontSize: 42,
-    fontWeight: "900",
+  emptyText: {
+    color: palette.muted,
+    fontSize: 15,
     marginTop: 6
   }
 });
+
+function missionStatusText(status: Mission["status"], t: (key: string) => string) {
+  return status === "done" ? t("done") : status === "in_progress" ? t("inProgress") : t("todo");
+}
