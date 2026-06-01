@@ -24,12 +24,5 @@
     "test:server": "npm run typecheck -w server",
     "test:web": "npm run typecheck -w web",
     "typecheck": "npm run typecheck --workspaces --if-present"
-  },
-  "main": "expo-router/entry",
-  "dependencies": {
-    "expo": "~55.0.26",
-    "expo-dev-client": "~55.0.35",
-    "react": "19.2.0",
-    "react-native": "0.83.6"
   }
 }
