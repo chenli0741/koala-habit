@@ -1,4 +1,5 @@
 const projectId = "03ebe280-ec86-4b90-be02-967f59678b97";
+const publicApiUrl = "https://koala-habit-api-preview.onrender.com";
 
 const variants = {
   development: {
@@ -24,6 +25,7 @@ const variants = {
 module.exports = ({ config }) => {
   const variantName = process.env.APP_VARIANT ?? "production";
   const variant = variants[variantName] ?? variants.production;
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? (variantName === "development" ? undefined : publicApiUrl);
 
   return {
     ...config,
@@ -31,7 +33,7 @@ module.exports = ({ config }) => {
     scheme: variant.scheme,
     extra: {
       ...(config.extra ?? {}),
-      apiUrl: process.env.EXPO_PUBLIC_API_URL,
+      apiUrl,
       appVariant: variantName,
       eas: {
         projectId

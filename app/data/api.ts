@@ -2,7 +2,7 @@ import Constants from "expo-constants";
 import { Mission, MissionCategory, TaskAttachment } from "./demo";
 import type { ChildAccount, ParentAccount } from "./store";
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? getDefaultApiBaseUrl();
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? Constants.expoConfig?.extra?.apiUrl ?? getDefaultApiBaseUrl();
 
 type ServerChild = {
   id: string;
