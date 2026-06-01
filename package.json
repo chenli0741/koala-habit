@@ -9,8 +9,13 @@
   ],
   "scripts": {
     "app": "scripts/start-ipad.sh",
+    "app:device": "scripts/start-device.sh",
     "app:expo-go": "npm run start -w app",
     "backend": "scripts/start-backend.sh",
+    "build:preview": "npm run build:preview -w app",
+    "build:preview:android": "npm run build:preview:android -w app",
+    "build:preview:ios": "npm run build:preview:ios -w app",
+    "build:preview:simulator": "npm run build:preview:simulator -w app",
     "restart": "scripts/restart-dev.sh",
     "web": "npm run dev -w web",
     "server": "npm run dev -w server",

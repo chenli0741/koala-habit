@@ -4,9 +4,14 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "start": "expo start --port 8082",
-    "ios": "expo start --ios --port 8082",
-    "android": "expo start --android --port 8082",
+    "start": "expo start --dev-client --host lan --port 8082",
+    "ios": "expo start --ios --dev-client --host lan --port 8082",
+    "android": "expo start --android --dev-client --host lan --port 8082",
+    "build:preview": "npx eas-cli@latest build --profile preview --platform all",
+    "build:preview:android": "npx eas-cli@latest build --profile preview --platform android",
+    "build:preview:ios": "npx eas-cli@latest build --profile preview --platform ios",
+    "build:preview:simulator": "npx eas-cli@latest build --profile preview-simulator --platform ios",
+    "device": "../../scripts/start-device.sh",
     "ipad": "../../scripts/start-ipad.sh",
     "web": "expo start --web --port 8082",
     "typecheck": "tsc --noEmit"
