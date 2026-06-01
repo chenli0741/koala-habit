@@ -32,6 +32,7 @@ type Mission = {
   repeatRule?: string;
   rewardMinutes?: number;
   scheduledTime?: string;
+  timeLimitMinutes?: number;
   total?: number;
   status: "done" | "todo" | "in_progress" | "expired";
   tone?: string;
@@ -70,6 +71,7 @@ type TaskTemplate = {
   repeatRule: string;
   rewardMinutes: number;
   scheduledTime?: string;
+  timeLimitMinutes?: number;
   target: string;
   title: string;
   tone: string;
@@ -95,6 +97,7 @@ type TaskForm = {
   repeatRule: string;
   scheduledTime: string;
   target: string;
+  timeLimitMinutes: string;
   title: string;
   tone: string;
   total: string;
@@ -110,6 +113,7 @@ type TemplateForm = {
   repeatRule: string;
   scheduledTime: string;
   target: string;
+  timeLimitMinutes: string;
   title: string;
   tone: string;
   total: string;
@@ -172,6 +176,7 @@ const zh: Record<string, string> = {
   tasks: "任务",
   themeColor: "主题颜色",
   time: "时间",
+  timeLimit: "限时分钟",
   totalSteps: "步骤数",
   uploadFile: "上传文件",
   vocabulary: "词汇",
@@ -253,6 +258,7 @@ const emptyTaskForm: TaskForm = {
   repeatRule: workDailyRepeatRule,
   scheduledTime: "16:00",
   target: "Daily goal",
+  timeLimitMinutes: "20",
   title: "",
   tone: "#3F7D58",
   total: "1",
@@ -268,6 +274,7 @@ const emptyTemplateForm: TemplateForm = {
   repeatRule: workDailyRepeatRule,
   scheduledTime: "16:00",
   target: "Daily goal",
+  timeLimitMinutes: "20",
   title: "",
   tone: "#3F7D58",
   total: "1"
@@ -433,6 +440,7 @@ export default function Page() {
       scheduledTime: taskForm.scheduledTime,
       status: "todo",
       target: taskForm.target,
+      timeLimitMinutes: taskForm.timeLimitMinutes ? Number(taskForm.timeLimitMinutes) : undefined,
       title: taskForm.title || t("newTask"),
       tone: taskForm.tone,
       total: Math.max(1, Number(taskForm.total))
@@ -563,6 +571,7 @@ export default function Page() {
       repeatRule: mission.repeatRule ?? "FREQ=DAILY",
       scheduledTime: mission.scheduledTime ?? "16:00",
       target: mission.target,
+      timeLimitMinutes: mission.timeLimitMinutes ? String(mission.timeLimitMinutes) : "",
       title: mission.title,
       tone: mission.tone ?? "#3F7D58",
       total: String(mission.total ?? 1),
@@ -942,6 +951,7 @@ function TaskFormView({
         <label>{t("totalSteps")}<input type="number" min="1" value={form.total} onChange={(event) => onChange({ ...form, total: event.target.value })} /></label>
         <label>{t("date")}<input type="date" value={form.occurrenceDate} onChange={(event) => onChange({ ...form, occurrenceDate: event.target.value })} /></label>
         <label>{t("time")}<input type="time" value={form.scheduledTime} onChange={(event) => onChange({ ...form, scheduledTime: event.target.value })} /></label>
+        <label>{t("timeLimit")}<input type="number" min="1" value={form.timeLimitMinutes} onChange={(event) => onChange({ ...form, timeLimitMinutes: event.target.value })} /></label>
         <RepeatRuleEditor value={form.repeatRule} onChange={(repeatRule) => onChange({ ...form, repeatRule })} t={t} />
         <label className="wide">{t("detailedContent")}<textarea value={form.detail} onChange={(event) => onChange({ ...form, detail: event.target.value })} /></label>
         <label className="wide">{t("goals")}<textarea value={form.goals} onChange={(event) => onChange({ ...form, goals: event.target.value })} /></label>
@@ -1060,6 +1070,7 @@ function TemplateFormView({
             <label>{t("rewardEnergy")}<input type="number" min="0" value={form.energy} onChange={(event) => onChange({ ...form, energy: event.target.value })} /></label>
             <label>{t("totalSteps")}<input type="number" min="1" value={form.total} onChange={(event) => onChange({ ...form, total: event.target.value })} /></label>
             <label>{t("time")}<input type="time" value={form.scheduledTime} onChange={(event) => onChange({ ...form, scheduledTime: event.target.value })} /></label>
+            <label>{t("timeLimit")}<input type="number" min="1" value={form.timeLimitMinutes} onChange={(event) => onChange({ ...form, timeLimitMinutes: event.target.value })} /></label>
             <RepeatRuleEditor
               value={form.repeatRule}
               onChange={(repeatRule) => onChange({ ...form, repeatRule })}
@@ -1287,6 +1298,7 @@ function TaskDetail({
       <dl className="detailGrid">
         <div><dt>{t("dateLabel")}</dt><dd>{formatDate(mission.occurrenceDate, t)}</dd></div>
         <div><dt>{t("time")}</dt><dd>{mission.scheduledTime || t("anyTime")}</dd></div>
+        <div><dt>{t("timeLimit")}</dt><dd>{mission.timeLimitMinutes ? `${mission.timeLimitMinutes} min` : t("anyTime")}</dd></div>
         <div><dt>{t("repeat")}</dt><dd>{formatRepeatRule(mission.repeatRule, t)}</dd></div>
         <div><dt>{t("progress")}</dt><dd>{mission.progress ?? 0}/{mission.total ?? 1}</dd></div>
         <div><dt>{t("reward")}</dt><dd>{mission.energy}</dd></div>
@@ -1371,6 +1383,7 @@ function templatePayload(childId: string, form: TemplateForm) {
     rewardMinutes: Number(form.energy),
     scheduledTime: form.scheduledTime,
     target: form.target,
+    timeLimitMinutes: form.timeLimitMinutes ? Number(form.timeLimitMinutes) : undefined,
     title: form.title || "New template",
     tone: form.tone,
     total: Math.max(1, Number(form.total))
@@ -1387,6 +1400,7 @@ function templateToForm(template: TaskTemplate): TemplateForm {
     repeatRule: template.repeatRule,
     scheduledTime: template.scheduledTime ?? "",
     target: template.target,
+    timeLimitMinutes: template.timeLimitMinutes ? String(template.timeLimitMinutes) : "",
     title: template.title,
     tone: template.tone,
     total: String(template.total)

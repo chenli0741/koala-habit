@@ -248,7 +248,12 @@ function TaskSchedule({
                 <Text style={styles.missionLabel}>{mission.title}</Text>
                 <Text style={styles.status}>{missionStatusText(mission.status, t)}</Text>
               </View>
-              <Text style={styles.missionDetail}>{mission.target}</Text>
+              <View style={styles.missionMetaRow}>
+                <Text style={styles.missionDetail}>{mission.target}</Text>
+                {mission.timeLimitMinutes ? (
+                  <Text style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text>
+                ) : null}
+              </View>
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
               </View>
@@ -542,9 +547,24 @@ const styles = StyleSheet.create({
     color: palette.muted
   },
   missionDetail: {
-    marginTop: 4,
+    flex: 1,
     fontSize: 15,
     color: palette.muted
+  },
+  missionMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4
+  },
+  timeLimitPill: {
+    borderRadius: 8,
+    backgroundColor: "#EEF3EA",
+    color: palette.green,
+    fontSize: 12,
+    fontWeight: "900",
+    paddingHorizontal: 8,
+    paddingVertical: 4
   },
   progressTrack: {
     height: 9,

@@ -11,13 +11,15 @@ import {
   loginChildApi,
   loginParentApi,
   MissionEvidence,
+  MissionTimerEventPayload,
+  recordMissionTimerEventApi,
   registerParentApi,
   signInGoogleParentApi,
   signInParentApi,
   toMissionPayload,
   updateMissionApi
 } from "./api";
-import { childProfile, Mission, MissionCategory, TaskAttachment } from "./demo";
+import { childProfile, Mission, MissionCategory, TaskAttachment, TaskEventType } from "./demo";
 import { Language, translate } from "./i18n";
 
 export type ParentAccount = {
@@ -44,6 +46,7 @@ type MissionDraft = {
   detail: string;
   goals: string[];
   energy: number;
+  timeLimitMinutes?: number;
   total: number;
   tone: string;
 };
@@ -69,6 +72,7 @@ type KoalaStore = {
   updateMission: (missionId: string, draft: MissionDraft) => Promise<void>;
   deleteMission: (missionId: string) => Promise<void>;
   completeMission: (missionId: string, evidence?: MissionEvidence) => Promise<void>;
+  recordMissionTimerEvent: (missionId: string, payload: MissionTimerEventPayload) => Promise<void>;
   getMission: (missionId: string | string[] | undefined) => Mission | undefined;
   setLanguage: (language: Language) => void;
   t: (key: string) => string;
@@ -334,6 +338,11 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
             vocabulary: []
           },
           rewardRecords: [],
+          eventRecords: [
+            taskEvent(missionId, "created", "Task created", `Task "${draft.title}" was created.`, {
+              timeLimitMinutes: draft.timeLimitMinutes ?? null
+            })
+          ],
           progress: 0,
           occurrenceStatus: "pending" as const,
           status: "todo" as const
@@ -358,7 +367,15 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
                   planDetail: {
                     ...mission.planDetail,
                     attachments: [...mission.planDetail.attachments, attachment]
-                  }
+                  },
+                  eventRecords: [
+                    ...mission.eventRecords,
+                    taskEvent(mission.id, "attachment_added", "Attachment added", `Attachment "${attachment.name}" was added.`, {
+                      attachmentId: attachment.id,
+                      mimeType: attachment.mimeType ?? null,
+                      size: attachment.size ?? null
+                    })
+                  ]
                 }
               : mission
           )
@@ -381,6 +398,12 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
         const nextMission = normalizeMissionProgress({
           ...currentMission,
           ...draft,
+          eventRecords: [
+            ...currentMission.eventRecords,
+            taskEvent(missionId, "updated", "Task updated", `Task "${draft.title}" details were updated.`, {
+              timeLimitMinutes: draft.timeLimitMinutes ?? null
+            })
+          ],
           progress: Math.min(currentMission.progress, draft.total)
         });
 
@@ -413,10 +436,14 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
         const completedMission = currentMission
           ? {
               ...currentMission,
+              actualStartAt: currentMission.actualStartAt ?? evidence?.startedAt,
+              actualEndAt: evidence?.endedAt ?? new Date().toISOString(),
               completionRecord: {
-                actualMinutes: currentMission.completionRecord?.actualMinutes,
-                completedAt: new Date().toISOString(),
-                parentConfirmed: true
+                actualMinutes: evidence?.actualMinutes ?? currentMission.completionRecord?.actualMinutes,
+                completedAt: evidence?.endedAt ?? new Date().toISOString(),
+                endedAt: evidence?.endedAt ?? new Date().toISOString(),
+                parentConfirmed: true,
+                startedAt: evidence?.startedAt ?? currentMission.completionRecord?.startedAt
               },
               progress: currentMission.total,
               occurrenceStatus: "done" as const,
@@ -436,7 +463,22 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           : null;
 
         if (completedMission) {
-          setMissionItems((current) => current.map((mission) => (mission.id === missionId ? completedMission : mission)));
+          setMissionItems((current) =>
+            current.map((mission) =>
+              mission.id === missionId
+                ? {
+                    ...completedMission,
+                    eventRecords: [
+                      ...completedMission.eventRecords,
+                      taskEvent(missionId, "status_change", "Status changed", "Status changed to done.", { to: "done" }),
+                      taskEvent(missionId, "completion", "Task completed", `Task "${completedMission.title}" was completed.`, {
+                        actualMinutes: evidence?.actualMinutes ?? null
+                      })
+                    ]
+                  }
+                : mission
+            )
+          );
         }
 
         try {
@@ -449,6 +491,38 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
       getMission: (id) => {
         const missionId = Array.isArray(id) ? id[0] : id;
         return missionItems.find((mission) => mission.id === missionId);
+      },
+      recordMissionTimerEvent: async (missionId, payload) => {
+        const recordedAt = new Date().toISOString();
+        setMissionItems((current) =>
+          current.map((mission) =>
+            mission.id === missionId
+              ? {
+                  ...mission,
+                  actualStartAt: payload.eventType === "timer_start" ? mission.actualStartAt ?? recordedAt : mission.actualStartAt,
+                  actualEndAt: payload.eventType === "timer_end" ? recordedAt : mission.actualEndAt,
+                  eventRecords: [
+                    ...mission.eventRecords,
+                    {
+                      content: timerEventContent(payload.eventType, payload.remainingSeconds),
+                      id: `timer-${mission.id}-${payload.eventType}-${Date.now()}`,
+                      eventType: payload.eventType,
+                      metadata: { remainingSeconds: payload.remainingSeconds },
+                      recordedAt,
+                      title: timerEventTitle(payload.eventType)
+                    }
+                  ]
+                }
+              : mission
+          )
+        );
+
+        try {
+          const storedMission = await recordMissionTimerEventApi(missionId, payload);
+          setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
+        } catch {
+          setMissionItems((current) => current);
+        }
       },
       setLanguage,
       t: (key) => translate(language, key)
@@ -519,6 +593,41 @@ function normalizeMissionProgress(mission: Mission): Mission {
     ...mission,
     status: mission.progress >= mission.total ? "done" : mission.progress > 0 ? "in_progress" : "todo"
   };
+}
+
+function taskEvent(
+  missionId: string,
+  eventType: TaskEventType,
+  title: string,
+  content: string,
+  metadata: Record<string, unknown> = {}
+) {
+  return {
+    content,
+    eventType,
+    id: `event-${missionId}-${eventType}-${Date.now()}`,
+    metadata,
+    recordedAt: new Date().toISOString(),
+    title
+  };
+}
+
+function timerEventTitle(eventType: MissionTimerEventPayload["eventType"]) {
+  switch (eventType) {
+    case "timer_start":
+      return "Timer started";
+    case "timer_pause":
+      return "Timer paused";
+    case "timer_resume":
+      return "Timer resumed";
+    case "timer_end":
+      return "Timer ended";
+  }
+}
+
+function timerEventContent(eventType: MissionTimerEventPayload["eventType"], remainingSeconds?: number) {
+  const remainingText = remainingSeconds === undefined ? "" : ` Remaining ${remainingSeconds} seconds.`;
+  return `${timerEventTitle(eventType)}.${remainingText}`;
 }
 
 export function useKoalaStore() {

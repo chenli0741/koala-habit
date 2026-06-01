@@ -13,7 +13,29 @@ export type CompletionRecord = {
   aiScore?: number;
   actualMinutes?: number;
   completedAt?: string;
+  endedAt?: string;
   parentConfirmed?: boolean;
+  startedAt?: string;
+};
+
+export type TaskEventType =
+  | "created"
+  | "updated"
+  | "status_change"
+  | "timer_start"
+  | "timer_pause"
+  | "timer_resume"
+  | "timer_end"
+  | "completion"
+  | "attachment_added";
+
+export type TaskEventRecord = {
+  content: string;
+  eventType: TaskEventType;
+  id: string;
+  metadata?: Record<string, unknown>;
+  recordedAt: string;
+  title: string;
 };
 
 export type TaskPlanDetail = {
@@ -46,6 +68,10 @@ export type Mission = {
   planDetail: TaskPlanDetail;
   completionRecord?: CompletionRecord;
   rewardRecords: RewardRecord[];
+  eventRecords: TaskEventRecord[];
+  timeLimitMinutes?: number;
+  actualStartAt?: string;
+  actualEndAt?: string;
   energy: number;
   progress: number;
   total: number;
@@ -99,6 +125,10 @@ export const missions: Mission[] = [
       parentConfirmed: true
     },
     rewardRecords: [{ id: "reward-english-reading", points: 10, reason: "Completed reading", source: "completion" }],
+    eventRecords: [],
+    timeLimitMinutes: 20,
+    actualStartAt: "2026-07-01T19:08:00.000Z",
+    actualEndAt: "2026-07-01T19:30:00.000Z",
     energy: 10,
     progress: 1,
     total: 1,
@@ -125,6 +155,8 @@ export const missions: Mission[] = [
       vocabulary: ["暖", "愿", "影"]
     },
     rewardRecords: [],
+    eventRecords: [],
+    timeLimitMinutes: 15,
     energy: 10,
     progress: 0,
     total: 1,
@@ -151,6 +183,8 @@ export const missions: Mission[] = [
       vocabulary: []
     },
     rewardRecords: [],
+    eventRecords: [],
+    timeLimitMinutes: 10,
     energy: 10,
     progress: 6,
     total: 10,
@@ -177,6 +211,8 @@ export const missions: Mission[] = [
       vocabulary: []
     },
     rewardRecords: [],
+    eventRecords: [],
+    timeLimitMinutes: 20,
     energy: 10,
     progress: 0,
     total: 1,
@@ -203,6 +239,8 @@ export const missions: Mission[] = [
       vocabulary: []
     },
     rewardRecords: [],
+    eventRecords: [],
+    timeLimitMinutes: 30,
     energy: 10,
     progress: 0,
     total: 1,

@@ -8,7 +8,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
 import { Link, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { encouragements, Mission } from "../../data/demo";
 import { useKoalaStore } from "../../data/store";
@@ -16,14 +16,19 @@ import { palette, shared } from "../../ui/styles";
 
 export default function MissionDetailScreen() {
   const { id } = useLocalSearchParams();
-  const { completeMission, getMission, t } = useKoalaStore();
+  const { completeMission, getMission, recordMissionTimerEvent, t } = useKoalaStore();
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder);
   const [photoUri, setPhotoUri] = useState<string | undefined>();
   const [audioUri, setAudioUri] = useState<string | undefined>();
   const [isPlanExpanded, setIsPlanExpanded] = useState(false);
   const [submitMessage, setSubmitMessage] = useState("");
+  const [timerState, setTimerState] = useState<"idle" | "running" | "paused" | "ended">("idle");
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const timerStartedAtRef = useRef<string | undefined>(undefined);
   const mission = getMission(id);
+  const timerMinutes = useMemo(() => mission?.timeLimitMinutes ?? 10, [mission?.timeLimitMinutes]);
+  const timeLimitSeconds = timerMinutes * 60;
 
   useEffect(() => {
     async function prepareAudio() {
@@ -39,6 +44,35 @@ export default function MissionDetailScreen() {
 
     void prepareAudio();
   }, []);
+
+  useEffect(() => {
+    setRemainingSeconds(timeLimitSeconds);
+    setTimerState("idle");
+    timerStartedAtRef.current = mission?.actualStartAt;
+  }, [mission?.id, timeLimitSeconds]);
+
+  useEffect(() => {
+    if (timerState !== "running" || remainingSeconds <= 0) {
+      return;
+    }
+
+    const tick = setInterval(() => {
+      setRemainingSeconds((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => clearInterval(tick);
+  }, [remainingSeconds, timerState]);
+
+  useEffect(() => {
+    if (!mission || timerState !== "running" || remainingSeconds !== 0) {
+      return;
+    }
+
+    setTimerState("ended");
+    void recordMissionTimerEvent(mission.id, { eventType: "timer_end", remainingSeconds: 0 });
+    speakTimerFinished(t("timerFinishedVoice"));
+    setSubmitMessage(t("timerFinished"));
+  }, [mission, recordMissionTimerEvent, remainingSeconds, t, timeLimitSeconds, timerState]);
 
   async function capturePhoto() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -86,11 +120,49 @@ export default function MissionDetailScreen() {
   }
 
   async function submitCompletion(missionId: string) {
+    const endedAt = new Date().toISOString();
+    const startedAt = timerStartedAtRef.current ?? mission?.actualStartAt;
+    const actualMinutes = startedAt ? Math.max(1, Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 60000)) : undefined;
+
     await completeMission(missionId, {
+      actualMinutes,
       audioUri,
-      photoUri
+      endedAt,
+      photoUri,
+      startedAt
     });
     setSubmitMessage(photoUri || audioUri ? t("proofAttached") : t("complete"));
+  }
+
+  async function startTimer() {
+    if (!mission) {
+      return;
+    }
+
+    const startedAt = new Date().toISOString();
+    timerStartedAtRef.current = timerStartedAtRef.current ?? startedAt;
+    const nextRemaining = remainingSeconds > 0 ? remainingSeconds : timeLimitSeconds;
+    setRemainingSeconds(nextRemaining);
+    setTimerState("running");
+    await recordMissionTimerEvent(mission.id, { eventType: "timer_start", remainingSeconds: nextRemaining });
+  }
+
+  async function pauseTimer() {
+    if (!mission) {
+      return;
+    }
+
+    setTimerState("paused");
+    await recordMissionTimerEvent(mission.id, { eventType: "timer_pause", remainingSeconds });
+  }
+
+  async function resumeTimer() {
+    if (!mission) {
+      return;
+    }
+
+    setTimerState("running");
+    await recordMissionTimerEvent(mission.id, { eventType: "timer_resume", remainingSeconds });
   }
 
   async function openAttachment(uri: string) {
@@ -196,6 +268,27 @@ export default function MissionDetailScreen() {
         </View>
 
         <View style={[shared.card, styles.secondaryCard]}>
+          <View style={styles.timerPanel}>
+            <View>
+              <Text style={styles.sectionLabel}>{t("countdown")} · {timerMinutes} min</Text>
+              <Text style={[styles.timerValue, { color: mission.tone }]}>{formatDuration(remainingSeconds)}</Text>
+            </View>
+            <View style={styles.timerActions}>
+              {timerState === "running" ? (
+                <Pressable style={styles.timerButton} onPress={pauseTimer}>
+                  <Text style={styles.timerButtonText}>{t("pause")}</Text>
+                </Pressable>
+              ) : timerState === "paused" ? (
+                <Pressable style={styles.timerButton} onPress={resumeTimer}>
+                  <Text style={styles.timerButtonText}>{t("resume")}</Text>
+                </Pressable>
+              ) : (
+                <Pressable style={styles.timerButton} onPress={startTimer}>
+                  <Text style={styles.timerButtonText}>{t("startTimer")}</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
           <Text style={styles.cardTitle}>{t("submitResult")}</Text>
           <View style={styles.actionGrid}>
             <Pressable style={styles.actionButton} onPress={() => submitCompletion(mission.id)}>
@@ -247,6 +340,21 @@ export default function MissionDetailScreen() {
                 ? `${mission.completionRecord.actualMinutes ?? t("done")} min · ${mission.completionRecord.parentConfirmed ? t("confirm") : t("open")}${mission.completionRecord.aiScore ? ` · AI ${mission.completionRecord.aiScore}` : ""}`
                 : t("pendingChildSubmission")}
             </Text>
+            {mission.actualStartAt || mission.actualEndAt ? (
+              <Text style={styles.recordMeta}>
+                {mission.actualStartAt ? `${t("startedAt")} ${formatClock(mission.actualStartAt)}` : ""}
+                {mission.actualEndAt ? ` · ${t("endedAt")} ${formatClock(mission.actualEndAt)}` : ""}
+              </Text>
+            ) : null}
+            {mission.eventRecords.length > 0 ? (
+              <View style={styles.timerLedger}>
+                {mission.eventRecords.slice(-4).map((event) => (
+                  <Text key={event.id} style={styles.ledgerItem}>
+                    {event.title || taskEventText(event.eventType, t)} · {formatClock(event.recordedAt)}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
             {mission.rewardRecords.length > 0 ? (
               <View style={styles.rewardLedger}>
                 {mission.rewardRecords.map((reward) => (
@@ -316,6 +424,62 @@ function fileIcon(name: string, mimeType?: string) {
   }
 
   return "FILE";
+}
+
+function formatDuration(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatClock(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function taskEventText(eventType: Mission["eventRecords"][number]["eventType"], t: (key: string) => string) {
+  switch (eventType) {
+    case "created":
+      return t("taskCreated");
+    case "updated":
+      return t("taskUpdated");
+    case "status_change":
+      return t("statusChanged");
+    case "timer_start":
+      return t("timerStarted");
+    case "timer_pause":
+      return t("timerPaused");
+    case "timer_resume":
+      return t("timerResumed");
+    case "timer_end":
+      return t("timerEnded");
+    case "completion":
+      return t("completedAt");
+    case "attachment_added":
+      return t("attachmentAdded");
+  }
+}
+
+function speakTimerFinished(message: string) {
+  try {
+    const Speech = require("expo-speech") as {
+      speak: (text: string, options?: { language?: string; rate?: number }) => void;
+      stop: () => void;
+    };
+
+    Speech.stop();
+    Speech.speak(message, {
+      language: "zh-CN",
+      rate: 0.9
+    });
+  } catch {
+    // The current development client may not include ExpoSpeech yet.
+  }
 }
 
 const styles = StyleSheet.create({
@@ -392,6 +556,39 @@ const styles = StyleSheet.create({
   progressFill: {
     height: 16,
     borderRadius: 8
+  },
+  timerPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FFFFFF",
+    padding: 16,
+    marginTop: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16
+  },
+  timerValue: {
+    fontSize: 42,
+    lineHeight: 48,
+    fontWeight: "900",
+    marginTop: 4
+  },
+  timerActions: {
+    minWidth: 140
+  },
+  timerButton: {
+    borderRadius: 8,
+    backgroundColor: palette.ink,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    alignItems: "center"
+  },
+  timerButtonText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "900"
   },
   planPanel: {
     borderRadius: 8,
@@ -622,6 +819,16 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 24,
     marginTop: 8
+  },
+  recordMeta: {
+    color: palette.muted,
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 8
+  },
+  timerLedger: {
+    gap: 4,
+    marginTop: 10
   },
   rewardLedger: {
     gap: 6,

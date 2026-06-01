@@ -20,6 +20,7 @@ import {
   initDb,
   loginParent,
   MissionInput,
+  recordMissionTimerEvent,
   registerParent,
   updateMission,
   updateTaskTemplate,
@@ -73,7 +74,20 @@ const family = {
   ]
 };
 
-const todayMissions: Array<MissionInput & { id: string }> = [
+type DemoMission = MissionInput & {
+  actualEndAt?: string;
+  actualStartAt?: string;
+  completionRecord?: {
+    actualMinutes?: number;
+    completedAt: string;
+    endedAt?: string;
+    parentConfirmed: boolean;
+    startedAt?: string;
+  };
+  eventRecords?: Array<{ content: string; eventType: string; id: string; metadata?: Record<string, unknown>; recordedAt: string; title: string }>;
+};
+
+const todayMissions: Array<DemoMission & { id: string }> = [
   {
     id: "english-reading",
     childId: "caitlyn",
@@ -84,6 +98,7 @@ const todayMissions: Array<MissionInput & { id: string }> = [
     detail: "Read for 20 minutes and learn 3 new words.",
     goals: ["Read 20 minutes", "Learn 3 new words", "Tell one favorite sentence"],
     rewardMinutes: 10,
+    timeLimitMinutes: 20,
     energy: 10,
     progress: 1,
     total: 1,
@@ -100,6 +115,7 @@ const todayMissions: Array<MissionInput & { id: string }> = [
     detail: "Read a Chinese story or practice one short poem.",
     goals: ["Read aloud", "Practice one poem", "Explain one new phrase"],
     rewardMinutes: 10,
+    timeLimitMinutes: 15,
     energy: 10,
     progress: 0,
     total: 1,
@@ -116,6 +132,7 @@ const todayMissions: Array<MissionInput & { id: string }> = [
     detail: "Finish 10 math questions and check mistakes carefully.",
     goals: ["Finish 10 questions", "Check all answers", "Fix mistakes"],
     rewardMinutes: 10,
+    timeLimitMinutes: 10,
     energy: 10,
     progress: 6,
     total: 10,
@@ -132,6 +149,7 @@ const todayMissions: Array<MissionInput & { id: string }> = [
     detail: "Practice piano for 20 minutes with a steady rhythm.",
     goals: ["Warm up", "Practice assigned piece", "Play one part smoothly"],
     rewardMinutes: 10,
+    timeLimitMinutes: 20,
     energy: 10,
     progress: 0,
     total: 1,
@@ -148,6 +166,7 @@ const todayMissions: Array<MissionInput & { id: string }> = [
     detail: "Do soccer drills or outdoor play with movement.",
     goals: ["Warm up safely", "Practice ball control", "Drink water after training"],
     rewardMinutes: 10,
+    timeLimitMinutes: 30,
     energy: 10,
     progress: 0,
     total: 1,
@@ -213,6 +232,7 @@ const createMissionSchema = z.object({
   energy: z.number().int().min(0).default(10),
   progress: z.number().int().min(0).default(0),
   scheduledTime: z.string().optional(),
+  timeLimitMinutes: z.number().int().min(1).optional(),
   total: z.number().int().min(1).default(1),
   tone: z.string().min(1).default("#3F7D58"),
   status: z.enum(["done", "todo", "in_progress"]).default("todo")
@@ -230,6 +250,7 @@ const taskTemplateSchema = z.object({
   rewardMinutes: z.number().int().min(0).default(10),
   energy: z.number().int().min(0).default(10),
   scheduledTime: z.string().optional(),
+  timeLimitMinutes: z.number().int().min(1).optional(),
   total: z.number().int().min(1).default(1),
   tone: z.string().min(1).default("#3F7D58")
 });
@@ -239,9 +260,17 @@ const createOccurrenceSchema = z.object({
 });
 
 const completeMissionSchema = z.object({
+  actualMinutes: z.number().int().min(0).optional(),
   audioUri: z.string().optional(),
+  endedAt: z.string().datetime().optional(),
   photoUri: z.string().optional(),
-  note: z.string().optional()
+  note: z.string().optional(),
+  startedAt: z.string().datetime().optional()
+});
+
+const timerEventSchema = z.object({
+  eventType: z.enum(["timer_start", "timer_pause", "timer_resume", "timer_end"]),
+  remainingSeconds: z.number().int().min(0).optional()
 });
 
 app.get("/health", (c) => c.json({ ok: true, db: dbEnabled, service: "koala-habit-server" }));
@@ -546,6 +575,7 @@ app.get("/families/demo/templates", async (c) => {
       target: mission.target,
       goals: mission.goals,
       rewardMinutes: mission.rewardMinutes,
+      timeLimitMinutes: mission.timeLimitMinutes,
       energy: mission.energy,
       total: mission.total,
       tone: mission.tone,
@@ -647,11 +677,18 @@ app.post("/families/demo/missions", async (c) => {
     detail: payload.detail,
     goals: payload.goals,
     rewardMinutes: payload.rewardMinutes,
+    timeLimitMinutes: payload.timeLimitMinutes,
     energy: payload.energy,
     progress: payload.progress,
     total: payload.total,
     tone: payload.tone,
     status: payload.status,
+    eventRecords: [
+      demoEvent(missionIdFromTitle(payload.title), "created", "Task created", `Task "${payload.title || "New task"}" was created.`, {
+        status: payload.status,
+        timeLimitMinutes: payload.timeLimitMinutes ?? null
+      })
+    ],
     planDetail: {
       attachments: payload.attachments,
       goals: payload.goals,
@@ -687,9 +724,22 @@ app.patch("/families/demo/missions/:id", async (c) => {
     return c.json({ error: "Mission not found" }, 404);
   }
 
+  const previous = todayMissions[index];
+  const nextStatus = payload.status === "done" ? "done" : "pending";
+  const previousStatus = previous.status === "done" ? "done" : "pending";
   const mission = {
     ...todayMissions[index],
     ...payload,
+    eventRecords: [
+      ...(previous.eventRecords ?? []),
+      demoEvent(missionId, "updated", "Task updated", `Task "${payload.title}" details were updated.`, {
+        scheduledTime: payload.scheduledTime ?? null,
+        timeLimitMinutes: payload.timeLimitMinutes ?? null
+      }),
+      ...(previousStatus !== nextStatus
+        ? [demoEvent(missionId, "status_change", "Status changed", `Status changed from ${previousStatus} to ${nextStatus}.`, { from: previousStatus, to: nextStatus })]
+        : [])
+    ],
     planDetail: {
       ...(todayMissions[index] as MissionInput & {
         planDetail?: {
@@ -750,9 +800,76 @@ app.post("/families/demo/missions/:id/complete", async (c) => {
     return c.json({ error: "Mission not found" }, 404);
   }
 
+  const previousStatus = mission.status === "done" ? "done" : "pending";
   mission.status = "done";
   mission.progress = mission.total;
+  mission.actualEndAt = payload.endedAt ?? new Date().toISOString();
+  mission.completionRecord = {
+    actualMinutes: payload.actualMinutes,
+    completedAt: mission.actualEndAt,
+    endedAt: mission.actualEndAt,
+    parentConfirmed: true,
+    startedAt: payload.startedAt
+  };
+  mission.eventRecords = [
+    ...(mission.eventRecords ?? []),
+    ...(previousStatus !== "done"
+      ? [demoEvent(missionId, "status_change", "Status changed", `Status changed from ${previousStatus} to done.`, { from: previousStatus, to: "done" })]
+      : []),
+    {
+      content: `Task completed${payload.actualMinutes ? ` in ${payload.actualMinutes} minutes` : ""}.`,
+      id: `timer-${missionId}-completion-${Date.now()}`,
+      eventType: "completion",
+      metadata: { actualMinutes: payload.actualMinutes ?? null, note: payload.note ?? null },
+      recordedAt: mission.actualEndAt,
+      title: "Task completed"
+    }
+  ];
   return c.json({ mission });
+});
+
+app.post("/families/demo/missions/:id/timer-events", async (c) => {
+  const missionId = c.req.param("id");
+  const payload = timerEventSchema.parse(await c.req.json());
+
+  if (dbEnabled) {
+    const mission = await recordMissionTimerEvent(missionId, payload);
+
+    if (!mission) {
+      return c.json({ error: "Mission not found" }, 404);
+    }
+
+    return c.json({ mission }, 201);
+  }
+
+  const mission = todayMissions.find((item) => item.id === missionId) as
+    | (MissionInput & {
+        actualEndAt?: string;
+        actualStartAt?: string;
+        eventRecords?: Array<{ content: string; eventType: string; id: string; metadata?: Record<string, unknown>; recordedAt: string; title: string }>;
+      })
+    | undefined;
+
+  if (!mission) {
+    return c.json({ error: "Mission not found" }, 404);
+  }
+
+  const recordedAt = new Date().toISOString();
+  mission.actualStartAt = payload.eventType === "timer_start" ? mission.actualStartAt ?? recordedAt : mission.actualStartAt;
+  mission.actualEndAt = payload.eventType === "timer_end" ? recordedAt : mission.actualEndAt;
+  mission.eventRecords = [
+    ...(mission.eventRecords ?? []),
+    {
+      content: `${timerEventTitle(payload.eventType)}${payload.remainingSeconds === undefined ? "." : ` with ${payload.remainingSeconds} seconds remaining.`}`,
+      id: `timer-${missionId}-${payload.eventType}-${Date.now()}`,
+      eventType: payload.eventType,
+      metadata: { remainingSeconds: payload.remainingSeconds ?? null },
+      recordedAt,
+      title: timerEventTitle(payload.eventType)
+    }
+  ];
+
+  return c.json({ mission }, 201);
 });
 
 app.post("/families/demo/missions/:id/attachments", async (c) => {
@@ -776,6 +893,7 @@ app.post("/families/demo/missions/:id/attachments", async (c) => {
   }
 
   const mutableMission = mission as MissionInput & {
+    eventRecords?: DemoMission["eventRecords"];
     planDetail?: {
       attachments?: Array<z.infer<typeof planAttachmentSchema>>;
     };
@@ -784,6 +902,14 @@ app.post("/families/demo/missions/:id/attachments", async (c) => {
     ...mutableMission.planDetail,
     attachments: [...(mutableMission.planDetail?.attachments ?? []), payload]
   };
+  mutableMission.eventRecords = [
+    ...((mutableMission as DemoMission).eventRecords ?? []),
+    demoEvent(missionId, "attachment_added", "Attachment added", `Attachment "${payload.name}" was added.`, {
+      attachmentId: payload.id,
+      mimeType: payload.mimeType ?? null,
+      size: payload.size ?? null
+    })
+  ];
 
   return c.json({ mission: mutableMission }, 201);
 });
@@ -802,6 +928,40 @@ function uniqueDemoChildId(name: string) {
   }
 
   return nextId;
+}
+
+function missionIdFromTitle(title: string) {
+  return title.toLowerCase().replaceAll(/\s+/g, "-");
+}
+
+function demoEvent(
+  missionId: string,
+  eventType: string,
+  title: string,
+  content: string,
+  metadata: Record<string, unknown> = {}
+) {
+  return {
+    content,
+    eventType,
+    id: `event-${missionId}-${eventType}-${Date.now()}`,
+    metadata,
+    recordedAt: new Date().toISOString(),
+    title
+  };
+}
+
+function timerEventTitle(eventType: "timer_start" | "timer_pause" | "timer_resume" | "timer_end") {
+  switch (eventType) {
+    case "timer_start":
+      return "Timer started";
+    case "timer_pause":
+      return "Timer paused";
+    case "timer_resume":
+      return "Timer resumed";
+    case "timer_end":
+      return "Timer ended";
+  }
 }
 
 export default app;

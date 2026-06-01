@@ -31,10 +31,27 @@ export type MissionInput = {
   scheduledTime?: string;
   status: "done" | "todo" | "in_progress";
   target: string;
+  timeLimitMinutes?: number;
   title: string;
   tone: string;
   total: number;
 };
+
+export type MissionTimerEventInput = {
+  eventType: "timer_start" | "timer_pause" | "timer_resume" | "timer_end";
+  remainingSeconds?: number;
+};
+
+type TaskEventType =
+  | "created"
+  | "updated"
+  | "status_change"
+  | "timer_start"
+  | "timer_pause"
+  | "timer_resume"
+  | "timer_end"
+  | "completion"
+  | "attachment_added";
 
 type OccurrenceStatus = "pending" | "done" | "skipped" | "expired";
 
@@ -62,6 +79,7 @@ export type TaskTemplateInput = {
   rewardMinutes: number;
   scheduledTime?: string;
   target: string;
+  timeLimitMinutes?: number;
   title: string;
   tone: string;
   total: number;
@@ -179,6 +197,7 @@ export async function initDb() {
     );
 
     alter table task_templates add column if not exists default_scheduled_time text;
+    alter table task_templates add column if not exists default_time_limit_minutes integer;
 
     create table if not exists task_occurrences (
       id text primary key,
@@ -188,6 +207,7 @@ export async function initDb() {
       title text not null,
       target text not null,
       scheduled_time text,
+      time_limit_minutes integer,
       status text not null default 'pending',
       actual_start_at timestamptz,
       actual_end_at timestamptz,
@@ -199,6 +219,10 @@ export async function initDb() {
       updated_at timestamptz not null default now(),
       unique (template_id, occurrence_date)
     );
+
+    alter table task_occurrences add column if not exists time_limit_minutes integer;
+    alter table task_occurrences add column if not exists actual_start_at timestamptz;
+    alter table task_occurrences add column if not exists actual_end_at timestamptz;
 
     create table if not exists task_plan_details (
       id text primary key,
@@ -239,6 +263,26 @@ export async function initDb() {
       status text not null,
       created_at timestamptz not null default now(),
       unique (occurrence_id, status)
+    );
+
+    create table if not exists task_timer_events (
+      id text primary key,
+      occurrence_id text not null references task_occurrences(id) on delete cascade,
+      child_id text not null references children(id) on delete cascade,
+      event_type text not null,
+      remaining_seconds integer,
+      recorded_at timestamptz not null default now()
+    );
+
+    create table if not exists task_events (
+      id text primary key,
+      occurrence_id text not null references task_occurrences(id) on delete cascade,
+      child_id text not null references children(id) on delete cascade,
+      event_type text not null,
+      title text not null,
+      content text not null,
+      metadata jsonb not null default '{}'::jsonb,
+      recorded_at timestamptz not null default now()
     );
 
     create table if not exists reward_records (
@@ -445,6 +489,9 @@ export async function getToday(childId: string) {
         occurrence.template_id,
         occurrence.occurrence_date,
         occurrence.scheduled_time,
+        occurrence.time_limit_minutes,
+        occurrence.actual_start_at,
+        occurrence.actual_end_at,
         template.icon,
         occurrence.title,
         template.category,
@@ -468,7 +515,8 @@ export async function getToday(childId: string) {
         completion.actual_minutes,
         completion.parent_confirmed,
         completion.ai_score,
-        coalesce(rewards.records, '[]'::jsonb) as reward_records
+        coalesce(rewards.records, '[]'::jsonb) as reward_records,
+        coalesce(task_events.records, '[]'::jsonb) as event_records
       from task_occurrences occurrence
       join task_templates template on template.id = occurrence.template_id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
@@ -492,6 +540,21 @@ export async function getToday(childId: string) {
         from reward_records
         where occurrence_id = occurrence.id
       ) rewards on true
+      left join lateral (
+        select jsonb_agg(
+          jsonb_build_object(
+            'id', id,
+            'eventType', event_type,
+            'title', title,
+            'content', content,
+            'recordedAt', recorded_at,
+            'metadata', metadata
+          )
+          order by recorded_at asc
+        ) as records
+        from task_events
+        where occurrence_id = occurrence.id
+      ) task_events on true
       where occurrence.child_id = $1
         and occurrence.occurrence_date = current_date
       order by occurrence.created_at asc
@@ -536,6 +599,9 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
         occurrence.template_id,
         occurrence.occurrence_date,
         occurrence.scheduled_time,
+        occurrence.time_limit_minutes,
+        occurrence.actual_start_at,
+        occurrence.actual_end_at,
         template.icon,
         occurrence.title,
         template.category,
@@ -559,7 +625,8 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
         completion.actual_minutes,
         completion.parent_confirmed,
         completion.ai_score,
-        coalesce(rewards.records, '[]'::jsonb) as reward_records
+        coalesce(rewards.records, '[]'::jsonb) as reward_records,
+        coalesce(task_events.records, '[]'::jsonb) as event_records
       from task_occurrences occurrence
       join task_templates template on template.id = occurrence.template_id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
@@ -583,6 +650,21 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
         from reward_records
         where occurrence_id = occurrence.id
       ) rewards on true
+      left join lateral (
+        select jsonb_agg(
+          jsonb_build_object(
+            'id', id,
+            'eventType', event_type,
+            'title', title,
+            'content', content,
+            'recordedAt', recorded_at,
+            'metadata', metadata
+          )
+          order by recorded_at asc
+        ) as records
+        from task_events
+        where occurrence_id = occurrence.id
+      ) task_events on true
       where occurrence.child_id = $1
         and ($2::date is null or occurrence.occurrence_date >= $2::date)
         and ($3::date is null or occurrence.occurrence_date <= $3::date)
@@ -614,6 +696,7 @@ export async function getTaskTemplatesForChild(childId: string) {
         default_reward_minutes,
         default_energy,
         default_total,
+        default_time_limit_minutes,
         tone,
         rrule,
         default_scheduled_time,
@@ -638,9 +721,9 @@ export async function createTaskTemplate(input: TaskTemplateInput) {
       insert into task_templates (
         id, child_id, icon, title, category, default_target, default_goals,
         default_reward_minutes, default_energy, default_total, tone, rrule,
-        default_scheduled_time, active
+        default_scheduled_time, default_time_limit_minutes, active
       )
-      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)
+      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)
     `,
     [
       templateId,
@@ -656,6 +739,7 @@ export async function createTaskTemplate(input: TaskTemplateInput) {
       input.tone,
       input.repeatRule,
       input.scheduledTime ?? null,
+      input.timeLimitMinutes ?? null,
       input.active ?? true
     ]
   );
@@ -680,7 +764,8 @@ export async function updateTaskTemplate(templateId: string, input: TaskTemplate
           tone = $10,
           rrule = $11,
           default_scheduled_time = $12,
-          active = $13,
+          default_time_limit_minutes = $13,
+          active = $14,
           updated_at = now()
       where id = $1
       returning id
@@ -698,6 +783,7 @@ export async function updateTaskTemplate(templateId: string, input: TaskTemplate
       input.tone,
       input.repeatRule,
       input.scheduledTime ?? null,
+      input.timeLimitMinutes ?? null,
       input.active ?? true
     ]
   );
@@ -720,7 +806,7 @@ export async function createOccurrenceFromTemplate(templateId: string, occurrenc
   const result = await pool!.query(
     `
       insert into task_occurrences (
-        id, template_id, child_id, occurrence_date, title, target, scheduled_time, progress, total, status
+        id, template_id, child_id, occurrence_date, title, target, scheduled_time, time_limit_minutes, progress, total, status
       )
       select
         $2,
@@ -730,6 +816,7 @@ export async function createOccurrenceFromTemplate(templateId: string, occurrenc
         template.title,
         template.default_target,
         template.default_scheduled_time,
+        template.default_time_limit_minutes,
         0,
         template.default_total,
         'pending'
@@ -782,9 +869,9 @@ export async function createMission(input: MissionInput) {
     `
       insert into task_templates (
         id, child_id, icon, title, category, default_target, default_goals,
-        default_reward_minutes, default_energy, default_total, tone, rrule, default_scheduled_time
+        default_reward_minutes, default_energy, default_total, tone, rrule, default_scheduled_time, default_time_limit_minutes
       )
-      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13)
+      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)
     `,
     [
       templateId,
@@ -799,16 +886,17 @@ export async function createMission(input: MissionInput) {
       input.total,
       input.tone,
       input.repeatRule ?? "FREQ=DAILY",
-      input.scheduledTime ?? null
+      input.scheduledTime ?? null,
+      input.timeLimitMinutes ?? null
     ]
   );
 
   await pool!.query(
     `
       insert into task_occurrences (
-        id, template_id, child_id, occurrence_date, title, target, scheduled_time, progress, total, status
+        id, template_id, child_id, occurrence_date, title, target, scheduled_time, time_limit_minutes, progress, total, status
       )
-      values ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10)
+      values ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11)
     `,
     [
       occurrenceId,
@@ -818,6 +906,7 @@ export async function createMission(input: MissionInput) {
       input.title,
       input.target,
       input.scheduledTime ?? null,
+      input.timeLimitMinutes ?? null,
       input.progress,
       input.total,
       toOccurrenceStatus(input.status)
@@ -839,12 +928,22 @@ export async function createMission(input: MissionInput) {
     ]
   );
 
+  await insertTaskEvent({
+    childId: input.childId,
+    content: `Task "${input.title}" was created for ${occurrenceDate}.`,
+    eventType: "created",
+    metadata: { occurrenceDate, status: input.status, timeLimitMinutes: input.timeLimitMinutes },
+    occurrenceId,
+    title: "Task created"
+  });
   const mission = await getMissionOccurrence(occurrenceId);
   return mission!;
 }
 
 export async function updateMission(missionId: string, input: MissionInput) {
   assertPool();
+  const existingResult = await pool!.query("select child_id, status from task_occurrences where id = $1", [missionId]);
+  const existing = existingResult.rows[0] as { child_id: string; status: string } | undefined;
 
   const updateResult = await pool!.query(
     `
@@ -856,6 +955,7 @@ export async function updateMission(missionId: string, input: MissionInput) {
           status = $6,
           occurrence_date = coalesce($7::date, occurrence_date),
           scheduled_time = $8,
+          time_limit_minutes = $9,
           updated_at = now()
       where id = $1
     `,
@@ -867,7 +967,8 @@ export async function updateMission(missionId: string, input: MissionInput) {
       input.total,
       toOccurrenceStatus(input.status),
       input.occurrenceDate ?? null,
-      input.scheduledTime ?? null
+      input.scheduledTime ?? null,
+      input.timeLimitMinutes ?? null
     ]
   );
 
@@ -892,6 +993,7 @@ export async function updateMission(missionId: string, input: MissionInput) {
             status = $6,
             occurrence_date = coalesce($7::date, occurrence_date),
             scheduled_time = $8,
+            time_limit_minutes = $9,
             updated_at = now()
         where id = $1
       `,
@@ -903,7 +1005,8 @@ export async function updateMission(missionId: string, input: MissionInput) {
         input.total,
         toOccurrenceStatus(input.status),
         input.occurrenceDate ?? null,
-        input.scheduledTime ?? null
+        input.scheduledTime ?? null,
+        input.timeLimitMinutes ?? null
       ]
     );
   }
@@ -918,6 +1021,7 @@ export async function updateMission(missionId: string, input: MissionInput) {
           tone = $6,
           rrule = $7,
           default_scheduled_time = $8,
+          default_time_limit_minutes = $9,
           updated_at = now()
       from task_occurrences occurrence
       where occurrence.id = $1
@@ -931,7 +1035,8 @@ export async function updateMission(missionId: string, input: MissionInput) {
       input.energy,
       input.tone,
       input.repeatRule ?? "FREQ=DAILY",
-      input.scheduledTime ?? null
+      input.scheduledTime ?? null,
+      input.timeLimitMinutes ?? null
     ]
   );
 
@@ -956,6 +1061,27 @@ export async function updateMission(missionId: string, input: MissionInput) {
     ]
   );
 
+  await insertTaskEvent({
+    childId: input.childId,
+    content: `Task "${input.title}" details were updated.`,
+    eventType: "updated",
+    metadata: { timeLimitMinutes: input.timeLimitMinutes, scheduledTime: input.scheduledTime ?? null },
+    occurrenceId,
+    title: "Task updated"
+  });
+
+  const nextStatus = toOccurrenceStatus(input.status);
+  if (existing?.status && existing.status !== nextStatus) {
+    await insertTaskEvent({
+      childId: existing.child_id,
+      content: `Status changed from ${existing.status} to ${nextStatus}.`,
+      eventType: "status_change",
+      metadata: { from: existing.status, to: nextStatus },
+      occurrenceId,
+      title: "Status changed"
+    });
+  }
+
   return getMissionOccurrence(occurrenceId);
 }
 
@@ -966,21 +1092,28 @@ export async function deleteMission(missionId: string) {
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function completeMission(missionId: string, evidence?: { audioUri?: string; note?: string; photoUri?: string }) {
+export async function completeMission(
+  missionId: string,
+  evidence?: { actualMinutes?: number; audioUri?: string; endedAt?: string; note?: string; photoUri?: string; startedAt?: string }
+) {
   assertPool();
 
   let occurrenceId = missionId;
+  let previousStatus: string | undefined;
+  const existingResult = await pool!.query("select status from task_occurrences where id = $1", [missionId]);
+  previousStatus = existingResult.rows[0]?.status;
   let missionResult = await pool!.query(
     `
       update task_occurrences
       set progress = total,
           status = 'done',
-          actual_end_at = now(),
+          actual_start_at = coalesce(actual_start_at, $2::timestamptz),
+          actual_end_at = coalesce($3::timestamptz, now()),
           updated_at = now()
       where id = $1
       returning id, child_id, total
     `,
-    [missionId]
+    [missionId, evidence?.startedAt ?? null, evidence?.endedAt ?? null]
   );
 
   if (missionResult.rowCount === 0) {
@@ -991,17 +1124,19 @@ export async function completeMission(missionId: string, evidence?: { audioUri?:
     }
 
     occurrenceId = materialized.id;
+    previousStatus = materialized.occurrenceStatus;
     missionResult = await pool!.query(
       `
         update task_occurrences
         set progress = total,
             status = 'done',
-            actual_end_at = now(),
+            actual_start_at = coalesce(actual_start_at, $2::timestamptz),
+            actual_end_at = coalesce($3::timestamptz, now()),
             updated_at = now()
         where id = $1
         returning id, child_id, total
       `,
-      [occurrenceId]
+      [occurrenceId, evidence?.startedAt ?? null, evidence?.endedAt ?? null]
     );
   }
   const occurrence = missionResult.rows[0];
@@ -1012,13 +1147,14 @@ export async function completeMission(missionId: string, evidence?: { audioUri?:
 
   await pool!.query(
     `
-      insert into completion_records (id, occurrence_id, child_id, completed_quantity, parent_confirmed, note, photo_uri, audio_uri)
-      values ($1, $2, $3, $4, $5, $6, $7, $8)
+      insert into completion_records (id, occurrence_id, child_id, actual_minutes, completed_quantity, parent_confirmed, note, photo_uri, audio_uri)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `,
     [
       `run-${missionId}-${Date.now()}`,
       occurrenceId,
       occurrence.child_id,
+      evidence?.actualMinutes ?? null,
       occurrence.total,
       true,
       evidence?.note ?? null,
@@ -1053,6 +1189,83 @@ export async function completeMission(missionId: string, evidence?: { audioUri?:
     [`reward-${occurrenceId}-${Date.now()}`, occurrenceId]
   );
 
+  await insertTaskEvent({
+    childId: occurrence.child_id,
+    content: `Task completed${evidence?.actualMinutes ? ` in ${evidence.actualMinutes} minutes` : ""}.`,
+    eventType: "completion",
+    metadata: { actualMinutes: evidence?.actualMinutes, note: evidence?.note ?? null },
+    occurrenceId,
+    recordedAt: evidence?.endedAt,
+    title: "Task completed"
+  });
+
+  if (previousStatus && previousStatus !== "done") {
+    await insertTaskEvent({
+      childId: occurrence.child_id,
+      content: `Status changed from ${previousStatus} to done.`,
+      eventType: "status_change",
+      metadata: { from: previousStatus, to: "done" },
+      occurrenceId,
+      recordedAt: evidence?.endedAt,
+      title: "Status changed"
+    });
+  }
+
+  return getMissionOccurrence(occurrenceId);
+}
+
+export async function recordMissionTimerEvent(missionId: string, input: MissionTimerEventInput) {
+  assertPool();
+
+  let occurrenceId = missionId;
+  let result = await pool!.query(
+    `
+      update task_occurrences
+      set actual_start_at = case when $2 = 'timer_start' then coalesce(actual_start_at, now()) else actual_start_at end,
+          actual_end_at = case when $2 = 'timer_end' then now() else actual_end_at end,
+          updated_at = now()
+      where id = $1
+      returning id, child_id
+    `,
+    [missionId, input.eventType]
+  );
+
+  if (result.rowCount === 0) {
+    const materialized = await materializeVirtualOccurrence(missionId);
+
+    if (!materialized) {
+      return null;
+    }
+
+    occurrenceId = materialized.id;
+    result = await pool!.query(
+      `
+        update task_occurrences
+        set actual_start_at = case when $2 = 'timer_start' then coalesce(actual_start_at, now()) else actual_start_at end,
+            actual_end_at = case when $2 = 'timer_end' then now() else actual_end_at end,
+            updated_at = now()
+        where id = $1
+        returning id, child_id
+      `,
+      [occurrenceId, input.eventType]
+    );
+  }
+
+  const occurrence = result.rows[0];
+
+  if (!occurrence) {
+    return null;
+  }
+
+  await insertTaskEvent({
+    childId: occurrence.child_id,
+    content: `${timerEventTitle(input.eventType)}${input.remainingSeconds === undefined ? "." : ` with ${input.remainingSeconds} seconds remaining.`}`,
+    eventType: input.eventType,
+    metadata: { remainingSeconds: input.remainingSeconds ?? null },
+    occurrenceId,
+    title: timerEventTitle(input.eventType)
+  });
+
   return getMissionOccurrence(occurrenceId);
 }
 
@@ -1078,6 +1291,20 @@ export async function addMissionAttachment(missionId: string, attachment: PlanAt
     [missionId, JSON.stringify(attachment)]
   );
 
+  const occurrenceResult = await pool!.query("select child_id from task_occurrences where id = $1", [missionId]);
+  const occurrence = occurrenceResult.rows[0] as { child_id: string } | undefined;
+
+  if (occurrence) {
+    await insertTaskEvent({
+      childId: occurrence.child_id,
+      content: `Attachment "${attachment.name}" was added.`,
+      eventType: "attachment_added",
+      metadata: { attachmentId: attachment.id, mimeType: attachment.mimeType ?? null, size: attachment.size ?? null },
+      occurrenceId: missionId,
+      title: "Attachment added"
+    });
+  }
+
   return getMissionOccurrence(missionId);
 }
 
@@ -1096,13 +1323,55 @@ function mapChild(row: Record<string, unknown>) {
   };
 }
 
+async function insertTaskEvent(input: {
+  childId: string;
+  content: string;
+  eventType: TaskEventType;
+  metadata?: Record<string, unknown>;
+  occurrenceId: string;
+  recordedAt?: string;
+  title: string;
+}) {
+  assertPool();
+
+  await pool!.query(
+    `
+      insert into task_events (id, occurrence_id, child_id, event_type, title, content, metadata, recorded_at)
+      values ($1, $2, $3, $4, $5, $6, $7::jsonb, coalesce($8::timestamptz, now()))
+    `,
+    [
+      `event-${input.occurrenceId}-${input.eventType}-${Date.now()}`,
+      input.occurrenceId,
+      input.childId,
+      input.eventType,
+      input.title,
+      input.content,
+      JSON.stringify(input.metadata ?? {}),
+      input.recordedAt ?? null
+    ]
+  );
+}
+
+function timerEventTitle(eventType: MissionTimerEventInput["eventType"]) {
+  switch (eventType) {
+    case "timer_start":
+      return "Timer started";
+    case "timer_pause":
+      return "Timer paused";
+    case "timer_resume":
+      return "Timer resumed";
+    case "timer_end":
+      return "Timer ended";
+  }
+}
+
 async function ensureTodayOccurrences(childId: string) {
   assertPool();
 
   await pool!.query(
     `
       insert into task_occurrences (
-        id, template_id, child_id, occurrence_date, title, target, scheduled_time, progress, total, status
+        id, template_id, child_id, occurrence_date, title, target, scheduled_time, time_limit_minutes, progress, total, status
       )
       select
         template.id || '-' || to_char(current_date, 'YYYY-MM-DD'),
@@ -1112,6 +1381,7 @@ async function ensureTodayOccurrences(childId: string) {
         template.title,
         template.default_target,
         template.default_scheduled_time,
+        template.default_time_limit_minutes,
         0,
         template.default_total,
         'pending'
@@ -1183,6 +1453,9 @@ async function getMissionOccurrence(occurrenceId: string) {
         occurrence.template_id,
         occurrence.occurrence_date,
         occurrence.scheduled_time,
+        occurrence.time_limit_minutes,
+        occurrence.actual_start_at,
+        occurrence.actual_end_at,
         template.icon,
         occurrence.title,
         template.category,
@@ -1206,7 +1479,8 @@ async function getMissionOccurrence(occurrenceId: string) {
         completion.actual_minutes,
         completion.parent_confirmed,
         completion.ai_score,
-        coalesce(rewards.records, '[]'::jsonb) as reward_records
+        coalesce(rewards.records, '[]'::jsonb) as reward_records,
+        coalesce(task_events.records, '[]'::jsonb) as event_records
       from task_occurrences occurrence
       join task_templates template on template.id = occurrence.template_id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
@@ -1230,6 +1504,21 @@ async function getMissionOccurrence(occurrenceId: string) {
         from reward_records
         where occurrence_id = occurrence.id
       ) rewards on true
+      left join lateral (
+        select jsonb_agg(
+          jsonb_build_object(
+            'id', id,
+            'eventType', event_type,
+            'title', title,
+            'content', content,
+            'recordedAt', recorded_at,
+            'metadata', metadata
+          )
+          order by recorded_at asc
+        ) as records
+        from task_events
+        where occurrence_id = occurrence.id
+      ) task_events on true
       where occurrence.id = $1
     `,
     [occurrenceId]
@@ -1254,6 +1543,7 @@ async function getTaskTemplate(templateId: string) {
         default_reward_minutes,
         default_energy,
         default_total,
+        default_time_limit_minutes,
         tone,
         rrule,
         default_scheduled_time,
@@ -1369,6 +1659,7 @@ async function resolveMissionOccurrences(childId: string, range: MissionRange, s
         template.default_reward_minutes,
         template.default_energy,
         template.default_total,
+        template.default_time_limit_minutes,
         template.tone,
         template.rrule,
         template.default_scheduled_time,
@@ -1445,6 +1736,9 @@ function virtualMissionRow(template: Record<string, unknown>, occurrenceDate: st
     template_id: template.id,
     occurrence_date: occurrenceDate,
     scheduled_time: template.default_scheduled_time,
+    time_limit_minutes: template.default_time_limit_minutes,
+    actual_start_at: null,
+    actual_end_at: null,
     icon: template.icon,
     title: template.title,
     category: template.category,
@@ -1468,7 +1762,8 @@ function virtualMissionRow(template: Record<string, unknown>, occurrenceDate: st
     actual_minutes: null,
     parent_confirmed: null,
     ai_score: null,
-    reward_records: []
+    reward_records: [],
+    event_records: []
   };
 }
 
@@ -1484,6 +1779,7 @@ function mapTaskTemplate(row: Record<string, unknown>) {
     rewardMinutes: Number(row.default_reward_minutes),
     energy: Number(row.default_energy),
     total: Number(row.default_total),
+    timeLimitMinutes: row.default_time_limit_minutes === null || row.default_time_limit_minutes === undefined ? undefined : Number(row.default_time_limit_minutes),
     tone: String(row.tone),
     repeatRule: String(row.rrule ?? "FREQ=DAILY"),
     scheduledTime: row.default_scheduled_time === null || row.default_scheduled_time === undefined ? "" : String(row.default_scheduled_time),
@@ -1521,11 +1817,17 @@ function mapMission(row: Record<string, unknown>) {
           actualMinutes: row.actual_minutes === null ? undefined : Number(row.actual_minutes),
           aiScore: row.ai_score === null ? undefined : Number(row.ai_score),
           completedAt: String(row.completed_at),
-          parentConfirmed: Boolean(row.parent_confirmed)
+          endedAt: row.actual_end_at === null || row.actual_end_at === undefined ? String(row.completed_at) : String(row.actual_end_at),
+          parentConfirmed: Boolean(row.parent_confirmed),
+          startedAt: row.actual_start_at === null || row.actual_start_at === undefined ? undefined : String(row.actual_start_at)
         }
       : undefined,
     rewardRecords: Array.isArray(row.reward_records) ? row.reward_records : [],
+    eventRecords: Array.isArray(row.event_records) ? row.event_records : [],
     rewardMinutes: Number(row.reward_minutes),
+    timeLimitMinutes: row.time_limit_minutes === null || row.time_limit_minutes === undefined ? undefined : Number(row.time_limit_minutes),
+    actualStartAt: row.actual_start_at === null || row.actual_start_at === undefined ? undefined : String(row.actual_start_at),
+    actualEndAt: row.actual_end_at === null || row.actual_end_at === undefined ? undefined : String(row.actual_end_at),
     energy: Number(row.energy),
     progress: Number(row.progress),
     total: Number(row.total),
@@ -1788,9 +2090,9 @@ async function seedDefaultData() {
       `
         insert into task_templates (
           id, child_id, icon, title, category, default_target, default_goals,
-          default_reward_minutes, default_energy, default_total, tone, rrule, default_scheduled_time
+          default_reward_minutes, default_energy, default_total, tone, rrule, default_scheduled_time, default_time_limit_minutes
         )
-        values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13)
+        values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)
         on conflict (id) do update
         set icon = excluded.icon,
             title = excluded.title,
@@ -1803,6 +2105,7 @@ async function seedDefaultData() {
             tone = excluded.tone,
             rrule = excluded.rrule,
             default_scheduled_time = excluded.default_scheduled_time,
+            default_time_limit_minutes = excluded.default_time_limit_minutes,
             active = true,
             updated_at = now()
       `,
@@ -1819,7 +2122,8 @@ async function seedDefaultData() {
         mission.total,
         mission.tone,
         mission.repeatRule ?? "FREQ=DAILY",
-        mission.scheduledTime ?? null
+        mission.scheduledTime ?? null,
+        mission.timeLimitMinutes ?? null
       ]
     );
 
@@ -1827,10 +2131,15 @@ async function seedDefaultData() {
       await pool!.query(
         `
           insert into task_occurrences (
-            id, template_id, child_id, occurrence_date, title, target, scheduled_time, progress, total, status
+            id, template_id, child_id, occurrence_date, title, target, scheduled_time, time_limit_minutes, progress, total, status
           )
-          values ($1, $2, $3, current_date, $4, $5, $6, $7, $8, $9)
-          on conflict (template_id, occurrence_date) do nothing
+          values ($1, $2, $3, current_date, $4, $5, $6, $7, $8, $9, $10)
+          on conflict (template_id, occurrence_date) do update
+          set title = excluded.title,
+              target = excluded.target,
+              scheduled_time = excluded.scheduled_time,
+              time_limit_minutes = excluded.time_limit_minutes,
+              updated_at = now()
         `,
         [
           occurrenceId,
@@ -1839,6 +2148,7 @@ async function seedDefaultData() {
           mission.title,
           mission.target,
           mission.scheduledTime ?? null,
+          mission.timeLimitMinutes ?? null,
           mission.progress,
           mission.total,
           toOccurrenceStatus(mission.status)
@@ -1885,9 +2195,9 @@ function demoMissionInputs(): MissionInput[] {
     task(base, "🀄", "中文认读和字帖", "language", "认读一篇文章，抄写字帖一篇", "每天认读一篇中文文章，并完成一篇字帖抄写。", ["朗读文章", "完成字帖", "圈出新词"], workDailyRepeatRule, "17:00", 10, "#B75F4A"),
     task(base, "📘", "读哈利波特和读后感", "reading", "读哈利波特，写一篇读后感", "阅读哈利波特当天内容，并写一篇读后感。", ["阅读当天内容", "写读后感", "检查拼写和表达"], workDailyRepeatRule, "19:00", 10, "#3F7D58"),
     task(base, "🎹", "弹钢琴和小叶子辅导", "music", "练琴30分钟", "周二、周四各练琴30分钟，并完成小叶子辅导。", ["热身", "练习曲目", "完成小叶子辅导"], "FREQ=WEEKLY;BYDAY=TU,TH", "18:00", 12, "#8B5E83", 15),
-    task(base, "💪", "日常体能训练", "sport", "体能训练10分钟", "完成10分钟日常体能训练。", ["核心训练", "力量训练", "拉伸"], workDailyRepeatRule, "18:45", 10, "#7A6A3A"),
+    task(base, "💪", "日常体能训练", "sport", "体能训练10分钟", "完成10分钟日常体能训练。", ["核心训练", "力量训练", "拉伸"], workDailyRepeatRule, "18:45", 10, "#7A6A3A", 10, 10),
     task(base, "🏊", "游泳", "sport", "游泳60分钟", "周二、周四游泳60分钟。", ["热身", "游泳60分钟", "洗澡整理"], "FREQ=WEEKLY;BYDAY=TU,TH", "10:00", 12, "#2C7DA0", 20),
-    task(base, "📺", "电视时间", "entertainment", "电视30分钟", "每天电视30分钟。", ["控制时间", "按时结束"], "FREQ=DAILY", "20:00", 5, "#6B5B95", 30)
+    task(base, "📺", "电视时间", "entertainment", "电视30分钟", "每天电视30分钟。", ["控制时间", "按时结束"], "FREQ=DAILY", "20:00", 5, "#6B5B95", 30, 30)
   ];
 }
 
@@ -1903,7 +2213,8 @@ function task(
   scheduledTime: string,
   energy: number,
   tone: string,
-  rewardMinutes = 10
+  rewardMinutes = 10,
+  timeLimitMinutes?: number
 ): MissionInput {
   return {
     ...base,
@@ -1916,6 +2227,7 @@ function task(
     rewardMinutes,
     scheduledTime,
     target,
+    timeLimitMinutes,
     title,
     tone
   };

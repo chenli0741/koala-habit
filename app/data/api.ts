@@ -18,8 +18,12 @@ type ServerMission = {
     actualMinutes?: number;
     aiScore?: number;
     completedAt?: string;
+    endedAt?: string;
     parentConfirmed?: boolean;
+    startedAt?: string;
   };
+  actualEndAt?: string;
+  actualStartAt?: string;
   occurrenceDate?: string;
   occurrenceStatus?: "pending" | "done" | "skipped" | "expired";
   id: string;
@@ -50,6 +54,15 @@ type ServerMission = {
     source: "completion" | "streak" | "bonus" | "parent";
   }>;
   rewardMinutes?: number;
+  eventRecords?: Array<{
+    content: string;
+    eventType: "created" | "updated" | "status_change" | "timer_start" | "timer_pause" | "timer_resume" | "timer_end" | "completion" | "attachment_added";
+    id: string;
+    metadata?: Record<string, unknown>;
+    recordedAt: string;
+    title: string;
+  }>;
+  timeLimitMinutes?: number;
   energy: number;
   progress?: number;
   total?: number;
@@ -67,6 +80,7 @@ type MissionPayload = {
   detail: string;
   goals: string[];
   rewardMinutes: number;
+  timeLimitMinutes?: number;
   energy: number;
   progress: number;
   total: number;
@@ -210,13 +224,30 @@ export async function deleteMissionApi(missionId: string) {
 
 export type MissionEvidence = {
   audioUri?: string;
+  actualMinutes?: number;
+  endedAt?: string;
   note?: string;
   photoUri?: string;
+  startedAt?: string;
+};
+
+export type MissionTimerEventPayload = {
+  eventType: "timer_start" | "timer_pause" | "timer_resume" | "timer_end";
+  remainingSeconds?: number;
 };
 
 export async function completeMissionApi(missionId: string, evidence?: MissionEvidence) {
   const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/complete`, {
     body: JSON.stringify(evidence ?? {}),
+    method: "POST"
+  });
+
+  return mapMission(data.mission);
+}
+
+export async function recordMissionTimerEventApi(missionId: string, payload: MissionTimerEventPayload) {
+  const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/timer-events`, {
+    body: JSON.stringify(payload),
     method: "POST"
   });
 
@@ -242,6 +273,7 @@ export function toMissionPayload(childId: string, draft: Omit<Mission, "id">): M
     detail: draft.detail,
     goals: draft.goals,
     rewardMinutes: draft.energy,
+    timeLimitMinutes: draft.timeLimitMinutes,
     energy: draft.energy,
     progress: draft.progress,
     total: draft.total,
@@ -322,6 +354,10 @@ function mapMission(mission: ServerMission): Mission {
     },
     completionRecord: mission.completionRecord,
     rewardRecords: mission.rewardRecords ?? [],
+    eventRecords: mission.eventRecords ?? [],
+    timeLimitMinutes: mission.timeLimitMinutes,
+    actualStartAt: mission.actualStartAt,
+    actualEndAt: mission.actualEndAt,
     energy: mission.energy,
     progress: mission.progress ?? (mission.status === "done" ? mission.total ?? 1 : 0),
     total: mission.total ?? 1,
