@@ -1,5 +1,5 @@
 const projectId = "03ebe280-ec86-4b90-be02-967f59678b97";
-const publicApiUrl = "https://koala-habit-api-preview.onrender.com";
+const publicApiUrl = "https://api.habit.globjoy.com";
 
 const variants = {
   development: {

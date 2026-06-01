@@ -18,7 +18,7 @@
       "channel": "preview",
       "env": {
         "APP_VARIANT": "preview",
-        "EXPO_PUBLIC_API_URL": "https://koala-habit-api-preview.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://api.habit.globjoy.com"
       },
       "android": {
         "buildType": "apk"
@@ -35,7 +35,7 @@
       "environment": "production",
       "env": {
         "APP_VARIANT": "production",
-        "EXPO_PUBLIC_API_URL": "https://koala-habit-api-preview.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://api.habit.globjoy.com"
       }
     }
   },
