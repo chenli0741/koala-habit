@@ -23,8 +23,17 @@ type Mission = {
   icon?: string;
   title: string;
   category: string;
+  executionType?: "completion" | "submission" | "timed";
   target: string;
+  targetApp?: string;
   detail?: string;
+  activeRun?: {
+    status?: string;
+  } | null;
+  eventRecords?: Array<{
+    eventType?: string;
+    title?: string;
+  }>;
   goals?: string[];
   energy: number;
   occurrenceDate?: string;
@@ -72,6 +81,7 @@ type TaskTemplate = {
   rewardMinutes: number;
   scheduledTime?: string;
   timeLimitMinutes?: number;
+  targetApp?: string;
   target: string;
   title: string;
   tone: string;
@@ -97,6 +107,7 @@ type TaskForm = {
   repeatRule: string;
   scheduledTime: string;
   target: string;
+  targetApp: string;
   timeLimitMinutes: string;
   title: string;
   tone: string;
@@ -113,6 +124,7 @@ type TemplateForm = {
   repeatRule: string;
   scheduledTime: string;
   target: string;
+  targetApp: string;
   timeLimitMinutes: string;
   title: string;
   tone: string;
@@ -161,6 +173,7 @@ const zh: Record<string, string> = {
   password: "密码",
   register: "注册",
   repeat: "重复",
+  resetTimedTask: "重置限时状态",
   rewardEnergy: "奖励能量",
   rules: "规则",
   saveChanges: "保存修改",
@@ -177,6 +190,7 @@ const zh: Record<string, string> = {
   themeColor: "主题颜色",
   time: "时间",
   timeLimit: "限时分钟",
+  targetApp: "目标 App",
   totalSteps: "步骤数",
   uploadFile: "上传文件",
   vocabulary: "词汇",
@@ -210,6 +224,7 @@ const zh: Record<string, string> = {
   taskConfirmed: "任务已确认。",
   taskCreated: "任务已创建。",
   taskDeleted: "任务已删除。",
+  timedTaskReset: "限时任务状态已重置。",
   taskUpdated: "任务已更新。",
   weekly: "每周",
   weeklyCustom: "每周自定义",
@@ -258,6 +273,7 @@ const emptyTaskForm: TaskForm = {
   repeatRule: workDailyRepeatRule,
   scheduledTime: "16:00",
   target: "Daily goal",
+  targetApp: "",
   timeLimitMinutes: "20",
   title: "",
   tone: "#3F7D58",
@@ -274,6 +290,7 @@ const emptyTemplateForm: TemplateForm = {
   repeatRule: workDailyRepeatRule,
   scheduledTime: "16:00",
   target: "Daily goal",
+  targetApp: "",
   timeLimitMinutes: "20",
   title: "",
   tone: "#3F7D58",
@@ -440,6 +457,7 @@ export default function Page() {
       scheduledTime: taskForm.scheduledTime,
       status: "todo",
       target: taskForm.target,
+      targetApp: taskForm.targetApp || undefined,
       timeLimitMinutes: taskForm.timeLimitMinutes ? Number(taskForm.timeLimitMinutes) : undefined,
       title: taskForm.title || t("newTask"),
       tone: taskForm.tone,
@@ -473,6 +491,12 @@ export default function Page() {
     await request(`/families/demo/missions/${missionId}`, { method: "DELETE" });
     setMessage(t("taskDeleted"));
     setSelectedMissionId(null);
+    await loadFamily();
+  }
+
+  async function resetTimedTask(missionId: string) {
+    await request(`/families/demo/missions/${missionId}/reset-timer`, { method: "POST" });
+    setMessage(t("timedTaskReset"));
     await loadFamily();
   }
 
@@ -571,6 +595,7 @@ export default function Page() {
       repeatRule: mission.repeatRule ?? "FREQ=DAILY",
       scheduledTime: mission.scheduledTime ?? "16:00",
       target: mission.target,
+      targetApp: mission.targetApp ?? "",
       timeLimitMinutes: mission.timeLimitMinutes ? String(mission.timeLimitMinutes) : "",
       title: mission.title,
       tone: mission.tone ?? "#3F7D58",
@@ -775,11 +800,12 @@ export default function Page() {
                   setShowTaskForm(false);
                 }}
                 onChange={setTaskForm}
+                onResetTimedTask={editingMissionId ? () => resetTimedTask(editingMissionId) : undefined}
                 onSubmit={submitTask}
                 t={t}
               />
             ) : selectedMission ? (
-              <TaskDetail mission={selectedMission} onComplete={completeTask} onDelete={deleteTask} onEdit={startEditTask} t={t} />
+              <TaskDetail mission={selectedMission} onComplete={completeTask} onDelete={deleteTask} onEdit={startEditTask} onResetTimedTask={resetTimedTask} t={t} />
             ) : (
               <div className="emptyState">
                 <h2>{t("noTasks")}</h2>
@@ -922,6 +948,7 @@ function TaskFormView({
   form,
   onCancel,
   onChange,
+  onResetTimedTask,
   onSubmit,
   t
 }: {
@@ -929,9 +956,12 @@ function TaskFormView({
   form: TaskForm;
   onCancel: () => void;
   onChange: (form: TaskForm) => void;
+  onResetTimedTask?: () => void;
   onSubmit: (event: FormEvent) => void;
   t: (key: string) => string;
 }) {
+  const canResetTimedTask = editing && Boolean(onResetTimedTask) && Boolean(form.timeLimitMinutes || form.targetApp);
+
   return (
     <form className="taskForm" onSubmit={onSubmit}>
       <div className="sectionHead">
@@ -939,7 +969,12 @@ function TaskFormView({
           <p className="kicker">{editing ? t("editTask") : t("addTask")}</p>
           <h2>{t("taskContent")}</h2>
         </div>
-        <button className="secondary" type="button" onClick={onCancel}>{t("cancel")}</button>
+        <div className="formHeaderActions">
+          {canResetTimedTask ? (
+            <button className="secondary" type="button" onClick={onResetTimedTask}>{t("resetTimedTask")}</button>
+          ) : null}
+          <button className="secondary" type="button" onClick={onCancel}>{t("cancel")}</button>
+        </div>
       </div>
       <div className="formGrid">
         <label>Icon<input value={form.icon} onChange={(event) => onChange({ ...form, icon: event.target.value })} /></label>
@@ -947,7 +982,8 @@ function TaskFormView({
         <label>{t("category")}<input value={form.category} onChange={(event) => onChange({ ...form, category: event.target.value })} /></label>
         <label>{t("themeColor")}<input type="color" value={form.tone} onChange={(event) => onChange({ ...form, tone: event.target.value })} /></label>
         <label className="wide">{t("dailyTarget")}<input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} /></label>
-        <label>{t("rewardEnergy")}<input type="number" min="0" value={form.energy} onChange={(event) => onChange({ ...form, energy: event.target.value })} /></label>
+        <label>{t("targetApp")}<input placeholder="YouTube" value={form.targetApp} onChange={(event) => onChange({ ...form, targetApp: event.target.value })} /></label>
+        <label>{t("rewardEnergy")}<input type="number" value={form.energy} onChange={(event) => onChange({ ...form, energy: event.target.value })} /></label>
         <label>{t("totalSteps")}<input type="number" min="1" value={form.total} onChange={(event) => onChange({ ...form, total: event.target.value })} /></label>
         <label>{t("date")}<input type="date" value={form.occurrenceDate} onChange={(event) => onChange({ ...form, occurrenceDate: event.target.value })} /></label>
         <label>{t("time")}<input type="time" value={form.scheduledTime} onChange={(event) => onChange({ ...form, scheduledTime: event.target.value })} /></label>
@@ -1067,7 +1103,8 @@ function TemplateFormView({
             <label>{t("category")}<input value={form.category} onChange={(event) => onChange({ ...form, category: event.target.value })} /></label>
             <label>{t("themeColor")}<input type="color" value={form.tone} onChange={(event) => onChange({ ...form, tone: event.target.value })} /></label>
             <label className="wide">{t("dailyTarget")}<input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} /></label>
-            <label>{t("rewardEnergy")}<input type="number" min="0" value={form.energy} onChange={(event) => onChange({ ...form, energy: event.target.value })} /></label>
+            <label>{t("targetApp")}<input placeholder="YouTube" value={form.targetApp} onChange={(event) => onChange({ ...form, targetApp: event.target.value })} /></label>
+            <label>{t("rewardEnergy")}<input type="number" value={form.energy} onChange={(event) => onChange({ ...form, energy: event.target.value })} /></label>
             <label>{t("totalSteps")}<input type="number" min="1" value={form.total} onChange={(event) => onChange({ ...form, total: event.target.value })} /></label>
             <label>{t("time")}<input type="time" value={form.scheduledTime} onChange={(event) => onChange({ ...form, scheduledTime: event.target.value })} /></label>
             <label>{t("timeLimit")}<input type="number" min="1" value={form.timeLimitMinutes} onChange={(event) => onChange({ ...form, timeLimitMinutes: event.target.value })} /></label>
@@ -1249,19 +1286,44 @@ function initials(value: string) {
   return (trimmed ? trimmed.slice(0, 1) : "K").toUpperCase();
 }
 
+function isTimedMission(mission: Mission) {
+  const knownTimedDemoTitles = new Set(["日常体能训练", "电视时间", "Soccer"]);
+  const hasTimerEvent = mission.eventRecords?.some((event) => {
+    const eventType = event.eventType ?? "";
+    const title = event.title ?? "";
+    return eventType.startsWith("timer_") || title.startsWith("App run ");
+  });
+
+  return Boolean(
+    mission.executionType === "timed" ||
+    mission.timeLimitMinutes ||
+    mission.targetApp ||
+    mission.activeRun ||
+    hasTimerEvent ||
+    mission.category === "entertainment" ||
+    knownTimedDemoTitles.has(mission.title)
+  );
+}
+
 function TaskDetail({
   mission,
   onComplete,
   onDelete,
   onEdit,
+  onResetTimedTask,
   t
 }: {
   mission: Mission;
   onComplete: (missionId: string) => void;
   onDelete: (missionId: string) => void;
   onEdit: (mission: Mission) => void;
+  onResetTimedTask: (missionId: string) => void;
   t: (key: string) => string;
 }) {
+  const isTimedTask = isTimedMission(mission);
+  const hasTimedSettings = Boolean(mission.timeLimitMinutes || mission.targetApp);
+  const shouldShowTimedReset = hasTimedSettings || isTimedTask;
+
   return (
     <div className="taskDetail">
       <div className="detailHero">
@@ -1272,6 +1334,16 @@ function TaskDetail({
           <span>{mission.category} · {mission.target}</span>
         </div>
       </div>
+      {shouldShowTimedReset ? (
+        <div className="timedTaskControl">
+          <div>
+            <p className="kicker">{t("timeLimit")}</p>
+            <strong>{mission.timeLimitMinutes ? `${mission.timeLimitMinutes} min` : t("anyTime")}</strong>
+            <span>{mission.targetApp || t("targetApp")}</span>
+          </div>
+          <button className="secondary" type="button" onClick={() => onResetTimedTask(mission.id)}>{t("resetTimedTask")}</button>
+        </div>
+      ) : null}
       <section>
         <h3>{t("instructions")}</h3>
         <p>{mission.detail || t("noDetail")}</p>
@@ -1299,6 +1371,7 @@ function TaskDetail({
         <div><dt>{t("dateLabel")}</dt><dd>{formatDate(mission.occurrenceDate, t)}</dd></div>
         <div><dt>{t("time")}</dt><dd>{mission.scheduledTime || t("anyTime")}</dd></div>
         <div><dt>{t("timeLimit")}</dt><dd>{mission.timeLimitMinutes ? `${mission.timeLimitMinutes} min` : t("anyTime")}</dd></div>
+        <div><dt>{t("targetApp")}</dt><dd>{mission.targetApp || t("anyTime")}</dd></div>
         <div><dt>{t("repeat")}</dt><dd>{formatRepeatRule(mission.repeatRule, t)}</dd></div>
         <div><dt>{t("progress")}</dt><dd>{mission.progress ?? 0}/{mission.total ?? 1}</dd></div>
         <div><dt>{t("reward")}</dt><dd>{mission.energy}</dd></div>
@@ -1383,6 +1456,7 @@ function templatePayload(childId: string, form: TemplateForm) {
     rewardMinutes: Number(form.energy),
     scheduledTime: form.scheduledTime,
     target: form.target,
+    targetApp: form.targetApp || undefined,
     timeLimitMinutes: form.timeLimitMinutes ? Number(form.timeLimitMinutes) : undefined,
     title: form.title || "New template",
     tone: form.tone,
@@ -1400,6 +1474,7 @@ function templateToForm(template: TaskTemplate): TemplateForm {
     repeatRule: template.repeatRule,
     scheduledTime: template.scheduledTime ?? "",
     target: template.target,
+    targetApp: template.targetApp ?? "",
     timeLimitMinutes: template.timeLimitMinutes ? String(template.timeLimitMinutes) : "",
     title: template.title,
     tone: template.tone,

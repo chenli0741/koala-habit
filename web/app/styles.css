@@ -427,6 +427,13 @@ p {
   margin: 4px 0 0;
 }
 
+.formHeaderActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .templateRow,
 .actionRow {
   display: flex;
@@ -650,6 +657,36 @@ p {
 .taskDetail section {
   border-bottom: 1px solid #ece3d6;
   padding-bottom: 14px;
+}
+
+.timedTaskControl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid #d7e1d0;
+  border-radius: 8px;
+  background: #f6faf3;
+  padding: 14px;
+}
+
+.timedTaskControl div {
+  display: grid;
+  gap: 4px;
+}
+
+.timedTaskControl p {
+  margin: 0;
+}
+
+.timedTaskControl strong {
+  color: #23433a;
+  font-size: 20px;
+}
+
+.timedTaskControl span {
+  color: #6f665a;
+  font-weight: 800;
 }
 
 .taskDetail h3 {
@@ -957,10 +994,15 @@ p {
   .formGrid,
   .formGrid.compact,
   .detailGrid,
+  .timedTaskControl,
   .taskList article,
   .templateList article,
   .sectionHead {
     grid-template-columns: 1fr;
+  }
+
+  .formHeaderActions {
+    justify-content: flex-start;
   }
 
   .wide {
