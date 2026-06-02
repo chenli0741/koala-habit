@@ -185,7 +185,7 @@ const todayMissions: Array<DemoMission & { id: string }> = [
     detail: "Do soccer drills or outdoor play with movement.",
     goals: ["Warm up safely", "Practice ball control", "Drink water after training"],
     rewardMinutes: 10,
-    timeLimitMinutes: 2,
+    timeLimitMinutes: 1,
     targetApp: "Maps",
     energy: 10,
     progress: 0,

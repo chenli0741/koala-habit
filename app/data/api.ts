@@ -479,7 +479,7 @@ function demoTargetAppForMission(title: string) {
 
 function demoTimeLimitForMission(title: string) {
   if (title === "日常体能训练" || title === "电视时间" || title === "Soccer") {
-    return 2;
+    return 1;
   }
 
   return undefined;

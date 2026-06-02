@@ -263,7 +263,7 @@ export const missions: Mission[] = [
     rewardRecords: [],
     eventRecords: [],
     executionType: "timed",
-    timeLimitMinutes: 2,
+    timeLimitMinutes: 1,
     targetApp: "Maps",
     energy: 10,
     progress: 0,

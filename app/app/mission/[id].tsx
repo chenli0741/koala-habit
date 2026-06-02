@@ -14,6 +14,9 @@ import { encouragements, Mission } from "../../data/demo";
 import { useKoalaStore } from "../../data/store";
 import { palette, shared } from "../../ui/styles";
 
+const TIMER_NOTIFICATION_SOUND = "task-time-up.wav";
+const TIMER_NOTIFICATION_INTERRUPTION_LEVEL = "timeSensitive";
+
 export default function MissionDetailScreen() {
   const { id } = useLocalSearchParams();
   const { completeMission, finishEntertainmentRun, getMission, pauseEntertainmentRun, recordMissionTimerEvent, resumeEntertainmentRun, startEntertainmentRun, t } = useKoalaStore();
@@ -760,15 +763,26 @@ async function scheduleTimerNotification(targetApp: string, endAt: Date, t: (key
     }
 
     const seconds = Math.max(1, Math.ceil((endAt.getTime() - Date.now()) / 1000));
-    debugTargetApp("notification scheduling", { seconds, targetApp });
+    debugTargetApp("notification scheduling", {
+      endAt: endAt.toISOString(),
+      interruptionLevel: TIMER_NOTIFICATION_INTERRUPTION_LEVEL,
+      seconds,
+      sound: TIMER_NOTIFICATION_SOUND,
+      targetApp
+    });
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
         title: t("timerFinished"),
         body: `${targetApp}: ${t("timerFinishedVoice")}`,
-        data: { screen: "mission" },
-        interruptionLevel: "timeSensitive",
-        sound: "default"
+        data: {
+          endAt: endAt.toISOString(),
+          expectedSound: TIMER_NOTIFICATION_SOUND,
+          screen: "mission",
+          targetApp
+        },
+        interruptionLevel: TIMER_NOTIFICATION_INTERRUPTION_LEVEL,
+        sound: TIMER_NOTIFICATION_SOUND
       },
       trigger: {
         seconds,
@@ -778,7 +792,11 @@ async function scheduleTimerNotification(targetApp: string, endAt: Date, t: (key
 
     if (Notifications.getAllScheduledNotificationsAsync) {
       const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-      debugTargetApp("notification scheduled count", { count: scheduled.length, notificationId });
+      debugTargetApp("notification scheduled count", {
+        count: scheduled.length,
+        notificationId,
+        sound: TIMER_NOTIFICATION_SOUND
+      });
     }
 
     return notificationId;
@@ -805,12 +823,18 @@ function ensureNotificationHandler(Notifications: {
   }
 
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true
-    })
+    handleNotification: async () => {
+      debugTargetApp("foreground notification handler invoked: sound disabled for foreground", {
+        sound: TIMER_NOTIFICATION_SOUND
+      });
+
+      return {
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true
+      };
+    }
   });
   notificationHandlerConfigured = true;
 }

@@ -47,7 +47,10 @@
       [
         "expo-notifications",
         {
-          "defaultChannel": "timer"
+          "defaultChannel": "timer",
+          "sounds": [
+            "./assets/notifications/task-time-up.wav"
+          ]
         }
       ]
     ],

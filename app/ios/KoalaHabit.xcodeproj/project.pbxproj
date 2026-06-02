@@ -10,6 +10,8 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		62C520E79DC541AD12670811 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 2AD02FFCBD43BA02E7C617CD /* PrivacyInfo.xcprivacy */; };
+		6F2BA95B3FE549D9A567F4DE /* timer-alert.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5CC2C0A65FAF4E7D91F186AF /* timer-alert.wav */; };
+		74F164DB70EF40BD8FE97611 /* task-time-up.wav in Resources */ = {isa = PBXBuildFile; fileRef = E4839754964C442F8D29C2A5 /* task-time-up.wav */; };
 		7A69CA08D1630422DE5E5CB0 /* libPods-KoalaHabit.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FE627A80180108DAFA6A121A /* libPods-KoalaHabit.a */; };
 		A84FD16E41BF53A400C69D22 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A97856D4A55D12AC3140F347 /* ExpoModulesProvider.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
@@ -21,7 +23,9 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = KoalaHabit/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = KoalaHabit/Info.plist; sourceTree = "<group>"; };
 		2AD02FFCBD43BA02E7C617CD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = KoalaHabit/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		5CC2C0A65FAF4E7D91F186AF /* timer-alert.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "timer-alert.wav"; path = "KoalaHabit/timer-alert.wav"; sourceTree = "<group>"; };
 		77F7ACE9330CEF7FACA8A2A5 /* Pods-KoalaHabit.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-KoalaHabit.debug.xcconfig"; path = "Target Support Files/Pods-KoalaHabit/Pods-KoalaHabit.debug.xcconfig"; sourceTree = "<group>"; };
+		E4839754964C442F8D29C2A5 /* task-time-up.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "task-time-up.wav"; path = "KoalaHabit/task-time-up.wav"; sourceTree = "<group>"; };
 		A97856D4A55D12AC3140F347 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-KoalaHabit/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = KoalaHabit/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
@@ -54,6 +58,8 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				2AD02FFCBD43BA02E7C617CD /* PrivacyInfo.xcprivacy */,
+				5CC2C0A65FAF4E7D91F186AF /* timer-alert.wav */,
+				E4839754964C442F8D29C2A5 /* task-time-up.wav */,
 			);
 			name = KoalaHabit;
 			sourceTree = "<group>";
@@ -196,6 +202,8 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				62C520E79DC541AD12670811 /* PrivacyInfo.xcprivacy in Resources */,
+				6F2BA95B3FE549D9A567F4DE /* timer-alert.wav in Resources */,
+				74F164DB70EF40BD8FE97611 /* task-time-up.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
