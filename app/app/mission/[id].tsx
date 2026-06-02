@@ -9,14 +9,14 @@ import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
 import { Link, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { encouragements, Mission } from "../../data/demo";
 import { useKoalaStore } from "../../data/store";
 import { palette, shared } from "../../ui/styles";
 
 export default function MissionDetailScreen() {
   const { id } = useLocalSearchParams();
-  const { completeMission, getMission, recordMissionTimerEvent, t } = useKoalaStore();
+  const { completeMission, finishEntertainmentRun, getMission, pauseEntertainmentRun, recordMissionTimerEvent, resumeEntertainmentRun, startEntertainmentRun, t } = useKoalaStore();
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder);
   const [photoUri, setPhotoUri] = useState<string | undefined>();
@@ -25,10 +25,31 @@ export default function MissionDetailScreen() {
   const [submitMessage, setSubmitMessage] = useState("");
   const [timerState, setTimerState] = useState<"idle" | "running" | "paused" | "ended">("idle");
   const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [nowMs, setNowMs] = useState(Date.now());
   const timerStartedAtRef = useRef<string | undefined>(undefined);
+  const notifiedRunIdsRef = useRef<Set<string>>(new Set());
   const mission = getMission(id);
+  const executionType = mission?.executionType ?? "completion";
+  const isTimedTask = executionType === "timed";
+  const isSubmissionTask = executionType === "submission";
   const timerMinutes = useMemo(() => mission?.timeLimitMinutes ?? 10, [mission?.timeLimitMinutes]);
   const timeLimitSeconds = timerMinutes * 60;
+  const activeEntertainmentRun = isTimedTask && mission?.activeRun && mission.activeRun.status !== "completed" ? mission.activeRun : undefined;
+  const isEntertainmentPaused = activeEntertainmentRun?.status === "paused";
+  const hasFinishedEntertainmentRun = Boolean(
+    isTimedTask && mission && (
+      mission.activeRun?.status === "completed" ||
+      mission.eventRecords.some(isAppRunFinishedEvent)
+    )
+  );
+  const entertainmentSeconds = activeEntertainmentRun
+    ? Math.ceil((new Date(activeEntertainmentRun.endAt).getTime() - (isEntertainmentPaused ? new Date(activeEntertainmentRun.completedAt ?? Date.now()).getTime() : nowMs)) / 1000)
+    : undefined;
+  const displaySeconds = activeEntertainmentRun
+    ? entertainmentSeconds ?? 0
+    : remainingSeconds;
+  const isEntertainmentOverdue = Boolean(activeEntertainmentRun && !isEntertainmentPaused && (entertainmentSeconds ?? 0) <= 0);
+  const canPauseEntertainment = Boolean(activeEntertainmentRun && !isEntertainmentPaused);
 
   useEffect(() => {
     async function prepareAudio() {
@@ -62,6 +83,48 @@ export default function MissionDetailScreen() {
 
     return () => clearInterval(tick);
   }, [remainingSeconds, timerState]);
+
+  useEffect(() => {
+    if (!activeEntertainmentRun) {
+      return;
+    }
+
+    setNowMs(Date.now());
+    const tick = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => clearInterval(tick);
+  }, [activeEntertainmentRun?.id]);
+
+  useEffect(() => {
+    if (!activeEntertainmentRun || isEntertainmentPaused || entertainmentSeconds === undefined || entertainmentSeconds > 0) {
+      return;
+    }
+
+    if (notifiedRunIdsRef.current.has(activeEntertainmentRun.id)) {
+      return;
+    }
+
+    notifiedRunIdsRef.current.add(activeEntertainmentRun.id);
+    setSubmitMessage(t("timerFinished"));
+    void recordMissionTimerEvent(mission!.id, { eventType: "timer_end", remainingSeconds: 0 });
+  }, [activeEntertainmentRun, entertainmentSeconds, isEntertainmentPaused, mission, recordMissionTimerEvent, t]);
+
+  useEffect(() => {
+    if (!mission) {
+      return;
+    }
+
+    debugTargetApp("mission loaded", {
+      executionType,
+      hasActiveRun: Boolean(activeEntertainmentRun),
+      hasFinishedEntertainmentRun,
+      missionId: mission.id,
+      targetApp: mission.targetApp,
+      title: mission.title
+    });
+  }, [activeEntertainmentRun, executionType, hasFinishedEntertainmentRun, mission]);
 
   useEffect(() => {
     if (!mission || timerState !== "running" || remainingSeconds !== 0) {
@@ -136,9 +199,15 @@ export default function MissionDetailScreen() {
 
   async function startTimer() {
     if (!mission) {
+      debugTargetApp("regular timer ignored: missing mission", { routeId: id });
       return;
     }
 
+    debugTargetApp("regular timer started", {
+      missionId: mission.id,
+      targetApp: mission.targetApp,
+      title: mission.title
+    });
     const startedAt = new Date().toISOString();
     timerStartedAtRef.current = timerStartedAtRef.current ?? startedAt;
     const nextRemaining = remainingSeconds > 0 ? remainingSeconds : timeLimitSeconds;
@@ -148,7 +217,7 @@ export default function MissionDetailScreen() {
   }
 
   async function pauseTimer() {
-    if (!mission) {
+    if (!mission || hasFinishedEntertainmentRun) {
       return;
     }
 
@@ -163,6 +232,112 @@ export default function MissionDetailScreen() {
 
     setTimerState("running");
     await recordMissionTimerEvent(mission.id, { eventType: "timer_resume", remainingSeconds });
+  }
+
+  async function startEntertainmentTimer() {
+    if (!mission) {
+      debugTargetApp("start ignored: missing mission", { routeId: id });
+      return;
+    }
+
+    const startAt = new Date();
+    const endAt = new Date(startAt.getTime() + timerMinutes * 60 * 1000);
+    const targetApp = mission.targetApp;
+    const targetUrl = targetAppUrl(targetApp);
+    debugTargetApp("start pressed", {
+      endAt: endAt.toISOString(),
+      hasFinishedEntertainmentRun,
+      missionId: mission.id,
+      targetApp,
+      targetUrl,
+      timerMinutes
+    });
+    debugTargetApp("start flow v3: scheduling notification before opening target app", {
+      missionId: mission.id
+    });
+    const notificationId = await scheduleTimerNotification(targetApp ?? t("targetApp"), endAt, t);
+    debugTargetApp("notification scheduled", { notificationId });
+
+    const runPromise = startEntertainmentRun(mission.id, {
+      endAt: endAt.toISOString(),
+      notificationId,
+      plannedDurationMinutes: timerMinutes,
+      startAt: startAt.toISOString(),
+      targetApp
+    }).then(
+      () => debugTargetApp("run created", { missionId: mission.id }),
+      (error) => debugTargetApp("run create failed", { error: readableError(error), missionId: mission.id })
+    );
+
+    await Promise.allSettled([
+      runPromise
+    ]);
+    await openTargetApp(targetApp);
+  }
+
+  async function finishEntertainmentTimer() {
+    if (!mission || !activeEntertainmentRun) {
+      return;
+    }
+
+    const stoppedAt = isEntertainmentPaused && activeEntertainmentRun.completedAt
+      ? new Date(activeEntertainmentRun.completedAt)
+      : new Date();
+    const remainingAtStop = Math.ceil((new Date(activeEntertainmentRun.endAt).getTime() - stoppedAt.getTime()) / 1000);
+    const actualDurationMinutes = Math.max(0, Math.round((timerMinutes * 60 - remainingAtStop) / 60));
+    const overdueMinutes = Math.max(0, Math.ceil(-remainingAtStop / 60));
+
+    await cancelTimerNotification(activeEntertainmentRun.notificationId);
+    await finishEntertainmentRun(mission.id, activeEntertainmentRun.id, {
+      actualDurationMinutes,
+      completedAt: stoppedAt.toISOString(),
+      overdue: overdueMinutes > 0,
+      overdueMinutes
+    });
+    setSubmitMessage(
+      overdueMinutes > 0
+        ? `${t("entertainmentDoneOverdue")} ${t("planned")} ${timerMinutes} min · ${t("actual")} ${actualDurationMinutes} min · +${overdueMinutes} min`
+        : `${t("entertainmentDone")} ${t("planned")} ${timerMinutes} min · ${t("actual")} ${actualDurationMinutes} min`
+    );
+  }
+
+  async function pauseEntertainmentTimer() {
+    if (!mission || !activeEntertainmentRun || isEntertainmentPaused) {
+      return;
+    }
+
+    const pausedAt = new Date();
+    const remainingAtPause = Math.ceil((new Date(activeEntertainmentRun.endAt).getTime() - pausedAt.getTime()) / 1000);
+    const actualDurationMinutes = Math.max(0, Math.round((timerMinutes * 60 - remainingAtPause) / 60));
+    const overdueMinutes = Math.max(0, Math.ceil(-remainingAtPause / 60));
+
+    await cancelTimerNotification(activeEntertainmentRun.notificationId);
+    await pauseEntertainmentRun(mission.id, activeEntertainmentRun.id, {
+      actualDurationMinutes,
+      overdue: overdueMinutes > 0,
+      overdueMinutes,
+      pausedAt: pausedAt.toISOString()
+    });
+    setSubmitMessage(`${t("entertainmentPaused")} ${t("actual")} ${actualDurationMinutes} min`);
+  }
+
+  async function resumeEntertainmentTimer() {
+    if (!mission || !activeEntertainmentRun || !isEntertainmentPaused || !activeEntertainmentRun.completedAt) {
+      return;
+    }
+
+    const resumedAt = new Date();
+    const pausedAt = new Date(activeEntertainmentRun.completedAt);
+    const pauseDurationMs = Math.max(0, resumedAt.getTime() - pausedAt.getTime());
+    const nextEndAt = new Date(new Date(activeEntertainmentRun.endAt).getTime() + pauseDurationMs);
+    const notificationId = await scheduleTimerNotification(activeEntertainmentRun.targetApp ?? mission.targetApp ?? t("targetApp"), nextEndAt, t);
+
+    await resumeEntertainmentRun(mission.id, activeEntertainmentRun.id, {
+      endAt: nextEndAt.toISOString(),
+      notificationId,
+      resumedAt: resumedAt.toISOString()
+    });
+    setSubmitMessage(t("timerResumed"));
   }
 
   async function openAttachment(uri: string) {
@@ -201,7 +376,7 @@ export default function MissionDetailScreen() {
           <Text style={shared.title}>
             {mission.icon} {mission.title}
           </Text>
-          <Text style={shared.subtitle}>{mission.detail}</Text>
+          <Text numberOfLines={2} style={[shared.subtitle, styles.headerSubtitle]}>{mission.detail}</Text>
         </View>
         <Link href="/" style={shared.navButton}>
           <Text style={shared.navButtonText}>{t("backHome")}</Text>
@@ -210,161 +385,185 @@ export default function MissionDetailScreen() {
 
       <View style={styles.grid}>
         <View style={[shared.card, styles.primaryCard]}>
-          <View>
-            <Text style={styles.cardTitle}>{t("goals")}</Text>
-            {mission.goals.map((goal) => (
-              <View key={goal} style={styles.goalRow}>
-                <Text style={styles.goalCheck}>✓</Text>
-                <Text style={styles.goalText}>{goal}</Text>
-              </View>
-            ))}
-          </View>
+          <ScrollView style={styles.cardScroll} contentContainerStyle={styles.primaryCardContent}>
+            <View>
+              <Text style={styles.cardTitle}>{t("goals")}</Text>
+              {mission.goals.map((goal) => (
+                <View key={goal} style={styles.goalRow}>
+                  <Text style={styles.goalCheck}>✓</Text>
+                  <Text style={styles.goalText}>{goal}</Text>
+                </View>
+              ))}
+            </View>
 
-          <View style={styles.planPanel}>
-            <Text style={styles.sectionLabel}>{t("todayPlan")}</Text>
-            <Text style={styles.planTitle}>{mission.planDetail.summary}</Text>
-            {mission.planDetail.vocabulary.length > 0 ? (
-              <View style={styles.tokenRow}>
-                {mission.planDetail.vocabulary.map((word) => (
-                  <Text key={word} style={styles.token}>{word}</Text>
-                ))}
+            <View style={styles.planPanel}>
+              <Text style={styles.sectionLabel}>{t("todayPlan")}</Text>
+              <Text style={styles.planTitle}>{mission.planDetail.summary}</Text>
+              {mission.planDetail.vocabulary.length > 0 ? (
+                <View style={styles.tokenRow}>
+                  {mission.planDetail.vocabulary.map((word) => (
+                    <Text key={word} style={styles.token}>{word}</Text>
+                  ))}
+                </View>
+              ) : null}
+              {mission.planDetail.notes ? (
+                <Text numberOfLines={3} style={styles.planNotes}>{mission.planDetail.notes}</Text>
+              ) : null}
+              <View style={styles.planActions}>
+                {shouldShowMore ? (
+                  <Pressable style={styles.inlineButton} onPress={() => setIsPlanExpanded(true)}>
+                    <Text style={styles.inlineButtonText}>{t("more")}</Text>
+                  </Pressable>
+                ) : null}
               </View>
-            ) : null}
-            {mission.planDetail.notes ? (
-              <Text numberOfLines={3} style={styles.planNotes}>{mission.planDetail.notes}</Text>
-            ) : null}
-            <View style={styles.planActions}>
-              {shouldShowMore ? (
-                <Pressable style={styles.inlineButton} onPress={() => setIsPlanExpanded(true)}>
-                  <Text style={styles.inlineButtonText}>{t("more")}</Text>
-                </Pressable>
+              {mission.planDetail.attachments.length > 0 ? (
+                <View style={styles.attachmentList}>
+                  {mission.planDetail.attachments.map((attachment) => (
+                    <Pressable key={attachment.id} style={styles.attachmentRow} onPress={() => openAttachment(attachment.uri)}>
+                      <Text style={styles.attachmentIcon}>{fileIcon(attachment.name, attachment.mimeType)}</Text>
+                      <View style={styles.attachmentCopy}>
+                        <Text numberOfLines={1} style={styles.attachmentName}>{attachment.name}</Text>
+                        <Text style={styles.attachmentMeta}>{attachmentLabel(attachment.mimeType, attachment.size)}</Text>
+                      </View>
+                      <Text style={styles.attachmentOpen}>{t("view")}</Text>
+                    </Pressable>
+                  ))}
+                </View>
               ) : null}
             </View>
-            {mission.planDetail.attachments.length > 0 ? (
-              <View style={styles.attachmentList}>
-                {mission.planDetail.attachments.map((attachment) => (
-                  <Pressable key={attachment.id} style={styles.attachmentRow} onPress={() => openAttachment(attachment.uri)}>
-                    <Text style={styles.attachmentIcon}>{fileIcon(attachment.name, attachment.mimeType)}</Text>
-                    <View style={styles.attachmentCopy}>
-                      <Text numberOfLines={1} style={styles.attachmentName}>{attachment.name}</Text>
-                      <Text style={styles.attachmentMeta}>{attachmentLabel(attachment.mimeType, attachment.size)}</Text>
-                    </View>
-                    <Text style={styles.attachmentOpen}>{t("view")}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
-          </View>
 
-          <View>
-            <View style={styles.bigNumberRow}>
-              <Text style={[styles.bigNumber, { color: mission.tone }]}>{percent}%</Text>
-              <Text style={styles.status}>{missionStatusText(mission.status, t)}</Text>
+            <View>
+              <View style={styles.bigNumberRow}>
+                <Text style={[styles.bigNumber, { color: mission.tone }]}>{percent}%</Text>
+                <Text style={styles.status}>{missionStatusText(mission.status, t)}</Text>
+              </View>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
+              </View>
             </View>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
-            </View>
-          </View>
+          </ScrollView>
         </View>
 
         <View style={[shared.card, styles.secondaryCard]}>
-          <View style={styles.timerPanel}>
-            <View>
-              <Text style={styles.sectionLabel}>{t("countdown")} · {timerMinutes} min</Text>
-              <Text style={[styles.timerValue, { color: mission.tone }]}>{formatDuration(remainingSeconds)}</Text>
-            </View>
-            <View style={styles.timerActions}>
-              {timerState === "running" ? (
-                <Pressable style={styles.timerButton} onPress={pauseTimer}>
-                  <Text style={styles.timerButtonText}>{t("pause")}</Text>
-                </Pressable>
-              ) : timerState === "paused" ? (
-                <Pressable style={styles.timerButton} onPress={resumeTimer}>
-                  <Text style={styles.timerButtonText}>{t("resume")}</Text>
-                </Pressable>
-              ) : (
-                <Pressable style={styles.timerButton} onPress={startTimer}>
-                  <Text style={styles.timerButtonText}>{t("startTimer")}</Text>
-                </Pressable>
-              )}
-            </View>
-          </View>
-          <Text style={styles.cardTitle}>{t("submitResult")}</Text>
-          <View style={styles.actionGrid}>
-            <Pressable style={styles.actionButton} onPress={() => submitCompletion(mission.id)}>
-              <Text style={styles.actionIcon}>✅</Text>
-              <Text style={styles.actionText}>{t("complete")}</Text>
-            </Pressable>
-            <Pressable style={[styles.actionButton, photoUri && styles.actionButtonActive]} onPress={capturePhoto}>
-              <Text style={styles.actionIcon}>📷</Text>
-              <Text style={styles.actionText}>{t("photo")}</Text>
-            </Pressable>
-            <Pressable style={[styles.actionButton, audioUri && styles.actionButtonActive]} onPress={toggleRecording}>
-              <Text style={styles.actionIcon}>🎤</Text>
-              <Text style={styles.actionText}>{t("audio")}</Text>
-            </Pressable>
-          </View>
-          {(photoUri || audioUri || submitMessage) ? (
-            <View style={styles.proofPanel}>
-              {photoUri ? <Image source={{ uri: photoUri }} style={styles.photoPreview} /> : null}
-              <View style={styles.proofCopy}>
-                <Text style={styles.proofTitle}>{t("proofAttached")}</Text>
-                <Text style={styles.proofText}>
-                  {photoUri ? t("photoReady") : t("noPhoto")} · {audioUri ? t("audioReady") : recorderState.isRecording ? t("recording") : t("noAudio")}
+          <ScrollView style={styles.cardScroll} contentContainerStyle={styles.secondaryCardContent}>
+            {isTimedTask ? (
+              <View style={styles.timerPanel}>
+              <View style={styles.timerCopy}>
+                <Text style={styles.sectionLabel}>
+                  {mission.targetApp ? `${mission.targetApp} · ` : ""}{isEntertainmentPaused ? t("paused") : isEntertainmentOverdue ? t("overdue") : t("countdown")} · {timerMinutes} min
                 </Text>
-                {submitMessage ? <Text style={styles.proofMeta}>{submitMessage}</Text> : null}
+                <Text style={[styles.timerValue, { color: mission.tone }]}>{formatDuration(displaySeconds)}</Text>
+                {activeEntertainmentRun ? <Text style={styles.timerHint}>{t("returnAfterTime")}</Text> : null}
+              </View>
+              <View style={styles.timerActions}>
+                {activeEntertainmentRun ? (
+                  <View style={styles.timerActionColumn}>
+                    {isEntertainmentPaused ? (
+                      <Pressable style={styles.timerButton} onPress={resumeEntertainmentTimer}>
+                        <Text style={styles.timerButtonText}>{t("resume")}</Text>
+                      </Pressable>
+                    ) : canPauseEntertainment ? (
+                      <Pressable style={styles.timerButton} onPress={pauseEntertainmentTimer}>
+                        <Text style={styles.timerButtonText}>{t("pause")}</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable style={styles.timerButton} onPress={finishEntertainmentTimer}>
+                      <Text style={styles.timerButtonText}>{t("finishTargetApp")}</Text>
+                    </Pressable>
+                  </View>
+                ) : hasFinishedEntertainmentRun ? (
+                  <Text style={styles.timerHint}>{t("entertainmentCompleted")}</Text>
+                ) : (
+                  <Pressable style={styles.timerButton} onPress={startEntertainmentTimer}>
+                    <Text style={styles.timerButtonText}>{`${mission.targetApp ? t("startTargetApp") : t("startTimer")} ${timerMinutes} min`}</Text>
+                  </Pressable>
+                )}
               </View>
             </View>
-          ) : null}
-          <View style={styles.encouragement}>
-            <Text style={styles.koala}>🐨</Text>
-            <View style={styles.encouragementCopy}>
-              <Text style={styles.encouragementTitle}>{t("aiEncouragement")}</Text>
-              <Text style={styles.bodyText}>{encouragements[0]}</Text>
+            ) : (
+              <View style={styles.executionPanel}>
+                <Text style={styles.sectionLabel}>{isSubmissionTask ? t("submissionTask") : t("completionTask")}</Text>
+                <Text style={styles.executionTitle}>{mission.status === "done" ? t("done") : t("pendingChildSubmission")}</Text>
+                <Text style={styles.timerHint}>{isSubmissionTask ? t("submissionTaskHint") : t("completionTaskHint")}</Text>
+              </View>
+            )}
+            <Text style={styles.cardTitle}>{t("submitResult")}</Text>
+            <View style={styles.actionGrid}>
+              <Pressable style={styles.actionButton} onPress={() => submitCompletion(mission.id)}>
+                <Text style={styles.actionIcon}>✅</Text>
+                <Text style={styles.actionText}>{t("complete")}</Text>
+              </Pressable>
+              <Pressable style={[styles.actionButton, photoUri && styles.actionButtonActive]} onPress={capturePhoto}>
+                <Text style={styles.actionIcon}>📷</Text>
+                <Text style={styles.actionText}>{t("photo")}</Text>
+              </Pressable>
+              <Pressable style={[styles.actionButton, audioUri && styles.actionButtonActive]} onPress={toggleRecording}>
+                <Text style={styles.actionIcon}>🎤</Text>
+                <Text style={styles.actionText}>{t("audio")}</Text>
+              </Pressable>
             </View>
-          </View>
-          <View style={styles.rewardStrip}>
-            <View>
-              <Text style={styles.rewardLabel}>{t("reward")}</Text>
-              <Text style={styles.rewardValue}>+{mission.energy}</Text>
+            {(photoUri || audioUri || submitMessage) ? (
+              <View style={styles.proofPanel}>
+                {photoUri ? <Image source={{ uri: photoUri }} style={styles.photoPreview} /> : null}
+                <View style={styles.proofCopy}>
+                  <Text style={styles.proofTitle}>{t("proofAttached")}</Text>
+                  <Text style={styles.proofText}>
+                    {photoUri ? t("photoReady") : t("noPhoto")} · {audioUri ? t("audioReady") : recorderState.isRecording ? t("recording") : t("noAudio")}
+                  </Text>
+                  {submitMessage ? <Text style={styles.proofMeta}>{submitMessage}</Text> : null}
+                </View>
+              </View>
+            ) : null}
+            <View style={styles.encouragement}>
+              <Text style={styles.koala}>🐨</Text>
+              <View style={styles.encouragementCopy}>
+                <Text style={styles.encouragementTitle}>{t("aiEncouragement")}</Text>
+                <Text style={styles.bodyText}>{encouragements[0]}</Text>
+              </View>
             </View>
-            <View>
-              <Text style={styles.rewardLabel}>{t("target")}</Text>
-              <Text style={styles.rewardTarget}>{mission.target}</Text>
+            <View style={styles.rewardStrip}>
+              <View>
+                <Text style={styles.rewardLabel}>{t("reward")}</Text>
+                <Text style={styles.rewardValue}>{formatPoints(mission.energy)}</Text>
+              </View>
+              <View style={styles.rewardTargetWrap}>
+                <Text style={styles.rewardLabel}>{t("target")}</Text>
+                <Text style={styles.rewardTarget}>{mission.target}</Text>
+              </View>
             </View>
-          </View>
-          <View style={styles.recordPanel}>
-            <Text style={styles.sectionLabel}>{t("completionRecord")}</Text>
-            <Text style={styles.recordText}>
-              {mission.completionRecord
-                ? `${mission.completionRecord.actualMinutes ?? t("done")} min · ${mission.completionRecord.parentConfirmed ? t("confirm") : t("open")}${mission.completionRecord.aiScore ? ` · AI ${mission.completionRecord.aiScore}` : ""}`
-                : t("pendingChildSubmission")}
-            </Text>
-            {mission.actualStartAt || mission.actualEndAt ? (
-              <Text style={styles.recordMeta}>
-                {mission.actualStartAt ? `${t("startedAt")} ${formatClock(mission.actualStartAt)}` : ""}
-                {mission.actualEndAt ? ` · ${t("endedAt")} ${formatClock(mission.actualEndAt)}` : ""}
+            <View style={styles.recordPanel}>
+              <Text style={styles.sectionLabel}>{t("completionRecord")}</Text>
+              <Text style={styles.recordText}>
+                {mission.completionRecord
+                  ? `${mission.completionRecord.actualMinutes ?? t("done")} min · ${mission.completionRecord.parentConfirmed ? t("confirm") : t("open")}${mission.completionRecord.aiScore ? ` · AI ${mission.completionRecord.aiScore}` : ""}`
+                  : t("pendingChildSubmission")}
               </Text>
-            ) : null}
-            {mission.eventRecords.length > 0 ? (
-              <View style={styles.timerLedger}>
-                {mission.eventRecords.slice(-4).map((event) => (
-                  <Text key={event.id} style={styles.ledgerItem}>
-                    {event.title || taskEventText(event.eventType, t)} · {formatClock(event.recordedAt)}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
-            {mission.rewardRecords.length > 0 ? (
-              <View style={styles.rewardLedger}>
-                {mission.rewardRecords.map((reward) => (
-                  <Text key={reward.id} style={styles.ledgerItem}>
-                    +{reward.points} {reward.reason}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
-          </View>
+              {mission.actualStartAt || mission.actualEndAt ? (
+                <Text style={styles.recordMeta}>
+                  {mission.actualStartAt ? `${t("startedAt")} ${formatClock(mission.actualStartAt)}` : ""}
+                  {mission.actualEndAt ? ` · ${t("endedAt")} ${formatClock(mission.actualEndAt)}` : ""}
+                </Text>
+              ) : null}
+              {mission.eventRecords.length > 0 ? (
+                <View style={styles.timerLedger}>
+                  {mission.eventRecords.slice(-4).map((event) => (
+                    <Text key={event.id} style={styles.ledgerItem}>
+                      {event.title || taskEventText(event.eventType, t)} · {formatClock(event.recordedAt)}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+              {mission.rewardRecords.length > 0 ? (
+                <View style={styles.rewardLedger}>
+                  {mission.rewardRecords.map((reward) => (
+                    <Text key={reward.id} style={styles.ledgerItem}>
+                      {formatPoints(reward.points)} {reward.reason}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          </ScrollView>
         </View>
       </View>
       <Modal transparent animationType="fade" visible={isPlanExpanded} onRequestClose={() => setIsPlanExpanded(false)}>
@@ -388,6 +587,10 @@ export default function MissionDetailScreen() {
 
 function missionStatusText(status: Mission["status"], t: (key: string) => string) {
   return status === "done" ? t("done") : status === "in_progress" ? t("inProgress") : t("todo");
+}
+
+function formatPoints(points: number) {
+  return points > 0 ? `+${points}` : `${points}`;
 }
 
 function attachmentLabel(mimeType?: string, size?: number) {
@@ -427,9 +630,11 @@ function fileIcon(name: string, mimeType?: string) {
 }
 
 function formatDuration(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  const sign = totalSeconds < 0 ? "-" : "";
+  const absoluteSeconds = Math.abs(totalSeconds);
+  const minutes = Math.floor(absoluteSeconds / 60);
+  const seconds = absoluteSeconds % 60;
+  return `${sign}${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function formatClock(value: string) {
@@ -465,6 +670,10 @@ function taskEventText(eventType: Mission["eventRecords"][number]["eventType"], 
   }
 }
 
+function isAppRunFinishedEvent(event: Mission["eventRecords"][number]) {
+  return event.title === "App run finished" || event.title === "Entertainment finished";
+}
+
 function speakTimerFinished(message: string) {
   try {
     const Speech = require("expo-speech") as {
@@ -482,22 +691,272 @@ function speakTimerFinished(message: string) {
   }
 }
 
+async function scheduleTimerNotification(targetApp: string, endAt: Date, t: (key: string) => string) {
+  try {
+    debugTargetApp("notification schedule entered", {
+      endAt: endAt.toISOString(),
+      targetApp
+    });
+    const Notifications = require("expo-notifications") as {
+      SchedulableTriggerInputTypes: { TIME_INTERVAL: string };
+      requestPermissionsAsync: (permissions?: {
+        ios?: {
+          allowAlert?: boolean;
+          allowBadge?: boolean;
+          allowSound?: boolean;
+        };
+      }) => Promise<{
+        granted: boolean;
+        ios?: {
+          allowsSound?: boolean;
+          status?: number | string;
+        };
+        status?: string;
+      }>;
+      setNotificationHandler: (handler: {
+        handleNotification: () => Promise<{
+          shouldPlaySound: boolean;
+          shouldSetBadge: boolean;
+          shouldShowBanner: boolean;
+          shouldShowList: boolean;
+        }>;
+      }) => void;
+      getAllScheduledNotificationsAsync?: () => Promise<Array<{ identifier: string }>>;
+      scheduleNotificationAsync: (request: {
+        content: {
+          body: string;
+          data?: Record<string, string>;
+          interruptionLevel?: "active" | "timeSensitive";
+          sound?: boolean | string;
+          title: string;
+        };
+        trigger: { seconds: number; type: string };
+      }) => Promise<string>;
+    };
+    if (!isExpoNotificationsAvailable(Notifications)) {
+      debugTargetApp("notification skipped: API unavailable", {});
+      return undefined;
+    }
+    debugTargetApp("notification module ready", {});
+
+    ensureNotificationHandler(Notifications);
+    const permission = await Notifications.requestPermissionsAsync({
+      ios: {
+        allowAlert: true,
+        allowBadge: false,
+        allowSound: true
+      }
+    });
+    debugTargetApp("notification permission", {
+      granted: permission.granted,
+      iosAllowsSound: permission.ios?.allowsSound,
+      iosStatus: permission.ios?.status,
+      status: permission.status
+    });
+
+    if (!permission.granted) {
+      debugTargetApp("notification permission not granted", {});
+      return undefined;
+    }
+
+    const seconds = Math.max(1, Math.ceil((endAt.getTime() - Date.now()) / 1000));
+    debugTargetApp("notification scheduling", { seconds, targetApp });
+
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: t("timerFinished"),
+        body: `${targetApp}: ${t("timerFinishedVoice")}`,
+        data: { screen: "mission" },
+        interruptionLevel: "timeSensitive",
+        sound: "default"
+      },
+      trigger: {
+        seconds,
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL
+      }
+    });
+
+    if (Notifications.getAllScheduledNotificationsAsync) {
+      const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+      debugTargetApp("notification scheduled count", { count: scheduled.length, notificationId });
+    }
+
+    return notificationId;
+  } catch (error) {
+    debugTargetApp("notification schedule failed", { error: readableError(error) });
+    return undefined;
+  }
+}
+
+let notificationHandlerConfigured = false;
+
+function ensureNotificationHandler(Notifications: {
+  setNotificationHandler: (handler: {
+    handleNotification: () => Promise<{
+      shouldPlaySound: boolean;
+      shouldSetBadge: boolean;
+      shouldShowBanner: boolean;
+      shouldShowList: boolean;
+    }>;
+  }) => void;
+}) {
+  if (notificationHandlerConfigured) {
+    return;
+  }
+
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true
+    })
+  });
+  notificationHandlerConfigured = true;
+}
+
+function isExpoNotificationsAvailable(Notifications: {
+  requestPermissionsAsync?: unknown;
+  scheduleNotificationAsync?: unknown;
+  setNotificationHandler?: unknown;
+}) {
+  return (
+    typeof Notifications.requestPermissionsAsync === "function" &&
+    typeof Notifications.scheduleNotificationAsync === "function" &&
+    typeof Notifications.setNotificationHandler === "function"
+  );
+}
+
+async function cancelTimerNotification(notificationId?: string) {
+  if (!notificationId) {
+    return;
+  }
+
+  try {
+    const Notifications = require("expo-notifications") as {
+      cancelScheduledNotificationAsync: (identifier: string) => Promise<void>;
+    };
+    await Notifications.cancelScheduledNotificationAsync(notificationId);
+  } catch {
+    // The current development client may not include ExpoNotifications yet.
+  }
+}
+
+async function openTargetApp(targetApp?: string) {
+  const url = targetAppUrl(targetApp);
+
+  debugTargetApp("open requested", { platform: Platform.OS, targetApp, url });
+
+  if (!url) {
+    debugTargetApp("open skipped: no url", { targetApp });
+    return;
+  }
+
+  try {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      debugTargetApp("web redirect", { url });
+      window.location.href = url;
+      return;
+    }
+
+    const canOpen = await Linking.canOpenURL(url);
+    debugTargetApp("canOpenURL result", { canOpen, url });
+    if (!canOpen) {
+      const fallbackUrl = fallbackTargetAppUrl(targetApp);
+      debugTargetApp("using fallback url", { fallbackUrl, targetApp });
+      await Linking.openURL(fallbackUrl);
+      debugTargetApp("fallback openURL succeeded", { fallbackUrl });
+      return;
+    }
+
+    await Linking.openURL(url);
+    debugTargetApp("openURL succeeded", { url });
+  } catch {
+    const fallbackUrl = fallbackTargetAppUrl(targetApp);
+    debugTargetApp("openURL failed, trying fallback", { fallbackUrl, targetApp });
+    try {
+      await Linking.openURL(fallbackUrl);
+      debugTargetApp("fallback openURL succeeded", { fallbackUrl });
+    } catch (error) {
+      debugTargetApp("fallback openURL failed", { error: readableError(error), fallbackUrl });
+    }
+  }
+}
+
+function fallbackTargetAppUrl(targetApp?: string) {
+  const normalized = targetApp?.trim().toLowerCase();
+
+  if (normalized?.includes("youtube")) {
+    return "https://www.youtube.com/";
+  }
+
+  return "https://maps.apple.com/";
+}
+
+function debugTargetApp(message: string, data?: Record<string, unknown>) {
+  console.log(`[TargetApp] ${message}`, data ?? {});
+}
+
+function readableError(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function targetAppUrl(targetApp?: string) {
+  const normalized = targetApp?.trim().toLowerCase();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (normalized.includes("youtube")) {
+    return "youtube://";
+  }
+
+  if (normalized.includes("map") || normalized.includes("地图")) {
+    return "http://maps.apple.com/?q=";
+  }
+
+  if (normalized.includes("apple music") || normalized === "music") {
+    return "music://";
+  }
+
+  return undefined;
+}
+
 const styles = StyleSheet.create({
   heading: {
     flex: 1,
     maxWidth: 780
   },
+  headerSubtitle: {
+    maxHeight: 52
+  },
   grid: {
     flex: 1,
     flexDirection: "row",
-    gap: 22
+    gap: 22,
+    minHeight: 0
   },
   primaryCard: {
     flex: 1.15,
-    justifyContent: "space-between"
+    minHeight: 0,
+    overflow: "hidden"
   },
   secondaryCard: {
-    flex: 1
+    flex: 1,
+    minHeight: 0,
+    overflow: "hidden"
+  },
+  cardScroll: {
+    flex: 1,
+    minHeight: 0
+  },
+  primaryCardContent: {
+    flexGrow: 1,
+    justifyContent: "space-between"
+  },
+  secondaryCardContent: {
+    paddingBottom: 2
   },
   cardTitle: {
     fontSize: 22,
@@ -563,11 +1022,30 @@ const styles = StyleSheet.create({
     borderColor: palette.line,
     backgroundColor: "#FFFFFF",
     padding: 16,
-    marginTop: 18,
+    marginBottom: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 16
+  },
+  timerCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  executionPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FFFFFF",
+    padding: 16,
+    marginBottom: 12
+  },
+  executionTitle: {
+    color: palette.ink,
+    fontSize: 20,
+    fontWeight: "900",
+    lineHeight: 28,
+    marginTop: 8
   },
   timerValue: {
     fontSize: 42,
@@ -576,7 +1054,11 @@ const styles = StyleSheet.create({
     marginTop: 4
   },
   timerActions: {
+    flexShrink: 0,
     minWidth: 140
+  },
+  timerActionColumn: {
+    gap: 8
   },
   timerButton: {
     borderRadius: 8,
@@ -589,6 +1071,12 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 15,
     fontWeight: "900"
+  },
+  timerHint: {
+    color: palette.muted,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 4
   },
   planPanel: {
     borderRadius: 8,
@@ -719,7 +1207,8 @@ const styles = StyleSheet.create({
     color: palette.ink,
     fontSize: 15,
     fontWeight: "900",
-    marginTop: 8
+    marginTop: 8,
+    textAlign: "center"
   },
   proofPanel: {
     flexDirection: "row",
@@ -789,6 +1278,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 26
   },
+  rewardTargetWrap: {
+    flex: 1,
+    minWidth: 0
+  },
   rewardLabel: {
     color: palette.muted,
     fontSize: 15,
@@ -804,7 +1297,8 @@ const styles = StyleSheet.create({
     marginTop: 10,
     color: palette.ink,
     fontSize: 20,
-    fontWeight: "900"
+    fontWeight: "900",
+    flexShrink: 1
   },
   recordPanel: {
     borderRadius: 8,

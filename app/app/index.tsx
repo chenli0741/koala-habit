@@ -215,29 +215,31 @@ function TaskSchedule({
 
   if (viewMode === "week") {
     return (
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.weekBoard}>
-        {calendarDays.map((day) => {
-          const dayMissions = missionsForDate(missions, day.key);
-          const done = dayMissions.filter((mission) => mission.status === "done").length;
-          return (
-            <View key={day.key} style={[styles.weekColumn, day.key === today && styles.weekColumnToday]}>
-              <Text style={styles.weekDay}>{day.label}</Text>
-              <Text style={styles.weekMeta}>{day.dayNumber} · {done}/{dayMissions.length}</Text>
-              {dayMissions.slice(0, 5).map((mission) => (
-                <View key={mission.id} style={styles.weekTaskPill}>
-                  <Text style={styles.weekTaskIcon}>{mission.icon}</Text>
-                  <Text numberOfLines={1} style={styles.weekTaskText}>{mission.title}</Text>
-                </View>
-              ))}
-            </View>
-          );
-        })}
+      <ScrollView style={styles.scheduleScroll} contentContainerStyle={styles.scheduleScrollContent}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.weekBoard}>
+          {calendarDays.map((day) => {
+            const dayMissions = missionsForDate(missions, day.key);
+            const done = dayMissions.filter((mission) => mission.status === "done").length;
+            return (
+              <View key={day.key} style={[styles.weekColumn, day.key === today && styles.weekColumnToday]}>
+                <Text style={styles.weekDay}>{day.label}</Text>
+                <Text style={styles.weekMeta}>{day.dayNumber} · {done}/{dayMissions.length}</Text>
+                {dayMissions.slice(0, 5).map((mission) => (
+                  <View key={mission.id} style={styles.weekTaskPill}>
+                    <Text style={styles.weekTaskIcon}>{mission.icon}</Text>
+                    <Text numberOfLines={1} style={styles.weekTaskText}>{mission.title}</Text>
+                  </View>
+                ))}
+              </View>
+            );
+          })}
+        </ScrollView>
       </ScrollView>
     );
   }
 
   return (
-    <>
+    <ScrollView style={styles.scheduleScroll} contentContainerStyle={styles.scheduleScrollContent}>
       {missions.map((mission) => {
         const percent = Math.round((mission.progress / mission.total) * 100);
         return (
@@ -250,26 +252,29 @@ function TaskSchedule({
               </View>
               <View style={styles.missionMetaRow}>
                 <Text style={styles.missionDetail}>{mission.target}</Text>
-                {mission.timeLimitMinutes ? (
-                  <Text style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text>
-                ) : null}
+                {mission.targetApp ? <Text style={styles.timeLimitPill}>{mission.targetApp}</Text> : null}
+                {mission.timeLimitMinutes ? <Text style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text> : null}
               </View>
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
               </View>
             </View>
             <Text style={styles.missionCount}>
-              +{mission.energy}
+              {formatPoints(mission.energy)}
             </Text>
           </Link>
         );
       })}
-    </>
+    </ScrollView>
   );
 }
 
 function missionStatusText(status: Mission["status"], t: (key: string) => string) {
   return status === "done" ? t("done") : status === "in_progress" ? t("inProgress") : t("todo");
+}
+
+function formatPoints(points: number) {
+  return points > 0 ? `+${points}` : `${points}`;
 }
 
 function missionsForDate(missions: Mission[], dateKey: string) {
@@ -338,7 +343,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     backgroundColor: palette.paper,
     padding: 28,
-    gap: 24
+    gap: 24,
+    minHeight: 0
   },
   sidebar: {
     width: 280,
@@ -421,7 +427,8 @@ const styles = StyleSheet.create({
   },
   main: {
     flex: 1,
-    gap: 22
+    gap: 22,
+    minHeight: 0
   },
   header: {
     flexDirection: "row",
@@ -440,14 +447,18 @@ const styles = StyleSheet.create({
   contentGrid: {
     flex: 1,
     flexDirection: "row",
-    gap: 22
+    gap: 22,
+    minHeight: 0
   },
   missionPanel: {
     ...shared.card,
-    flex: 1.45
+    flex: 1.45,
+    minHeight: 0,
+    overflow: "hidden"
   },
   companionPanel: {
     flex: 1,
+    minHeight: 0,
     backgroundColor: "#E7F0E2",
     borderRadius: 8,
     padding: 20,
@@ -464,6 +475,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    flexShrink: 0,
     marginBottom: 16
   },
   viewSwitch: {
@@ -509,6 +521,13 @@ const styles = StyleSheet.create({
     color: palette.green,
     fontSize: 13,
     fontWeight: "900"
+  },
+  scheduleScroll: {
+    flex: 1,
+    minHeight: 0
+  },
+  scheduleScrollContent: {
+    paddingBottom: 2
   },
   missionCard: {
     minHeight: 112,

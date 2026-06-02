@@ -43,6 +43,12 @@
         {
           "microphonePermission": "Allow Koala Habit to record task proof audio."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "timer"
+        }
       ]
     ],
     "experiments": {

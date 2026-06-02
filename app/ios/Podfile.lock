@@ -239,10 +239,14 @@ PODS:
     - React-Core
     - React-runtimescheduler
     - ReactCommon
+  - ExpoNotifications (55.0.23):
+    - ExpoModulesCore
   - ExpoRouter (55.0.16):
     - ExpoModulesCore
     - RNScreens
   - ExpoSecureStore (55.0.14):
+    - ExpoModulesCore
+  - ExpoSpeech (55.0.14):
     - ExpoModulesCore
   - ExpoSymbols (55.0.9):
     - ExpoModulesCore
@@ -2181,7 +2185,7 @@ PODS:
   - Yoga (0.0.0)
 
 DEPENDENCIES:
-  - EXApplication (from `../node_modules/expo-auth-session/node_modules/expo-application/ios`)
+  - EXApplication (from `../../node_modules/expo-application/ios`)
   - EXConstants (from `../../node_modules/expo-constants/ios`)
   - EXJSONUtils (from `../../node_modules/expo-json-utils/ios`)
   - EXManifests (from `../../node_modules/expo-manifests/ios`)
@@ -2205,8 +2209,10 @@ DEPENDENCIES:
   - "ExpoLogBox (from `../../node_modules/@expo/log-box`)"
   - ExpoModulesCore (from `../../node_modules/expo-modules-core`)
   - ExpoModulesJSI (from `../../node_modules/expo-modules-core`)
+  - ExpoNotifications (from `../../node_modules/expo-notifications/ios`)
   - ExpoRouter (from `../../node_modules/expo-router/ios`)
   - ExpoSecureStore (from `../../node_modules/expo-secure-store/ios`)
+  - ExpoSpeech (from `../../node_modules/expo-speech/ios`)
   - ExpoSymbols (from `../../node_modules/expo-symbols/ios`)
   - ExpoSystemUI (from `../../node_modules/expo-system-ui/ios`)
   - ExpoWebBrowser (from `../node_modules/expo-web-browser/ios`)
@@ -2300,7 +2306,7 @@ SPEC REPOS:
 
 EXTERNAL SOURCES:
   EXApplication:
-    :path: "../node_modules/expo-auth-session/node_modules/expo-application/ios"
+    :path: "../../node_modules/expo-application/ios"
   EXConstants:
     :path: "../../node_modules/expo-constants/ios"
   EXJSONUtils:
@@ -2347,10 +2353,14 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/expo-modules-core"
   ExpoModulesJSI:
     :path: "../../node_modules/expo-modules-core"
+  ExpoNotifications:
+    :path: "../../node_modules/expo-notifications/ios"
   ExpoRouter:
     :path: "../../node_modules/expo-router/ios"
   ExpoSecureStore:
     :path: "../../node_modules/expo-secure-store/ios"
+  ExpoSpeech:
+    :path: "../../node_modules/expo-speech/ios"
   ExpoSymbols:
     :path: "../../node_modules/expo-symbols/ios"
   ExpoSystemUI:
@@ -2536,8 +2546,10 @@ SPEC CHECKSUMS:
   ExpoLogBox: a678d36477ab9544fe63e0b5328a0716539b6774
   ExpoModulesCore: 998d0fbf7f687b1ff715b87cec779fc92be628ac
   ExpoModulesJSI: 964334271fc77832736f66ee1785761cdc778dbe
+  ExpoNotifications: 61c46aa5df088ff0ad41de0504a86a92333aec55
   ExpoRouter: e0e2aa4b03843e7abfa3e63e0cdd6c642d74780f
   ExpoSecureStore: 0e7959ad3a9fa59306d55f26a37854640dd334c2
+  ExpoSpeech: afff97450c029ce8a3cf0e2f122423870c756e59
   ExpoSymbols: 896159288ad708e1a32dc12c92fe5f90bff01126
   ExpoSystemUI: fbc4f8af83f2b8338c1de69a79624769536f09d1
   ExpoWebBrowser: 5847267c496125abe38afccae97d34cb6ecc5340

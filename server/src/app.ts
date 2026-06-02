@@ -20,8 +20,13 @@ import {
   initDb,
   loginParent,
   MissionInput,
+  pauseTaskRun,
   recordMissionTimerEvent,
   registerParent,
+  resetTimedMission,
+  finishTaskRun,
+  resumeTaskRun,
+  startTaskRun,
   updateMission,
   updateTaskTemplate,
   upsertFamilyWithParent
@@ -85,6 +90,20 @@ type DemoMission = MissionInput & {
     startedAt?: string;
   };
   eventRecords?: Array<{ content: string; eventType: string; id: string; metadata?: Record<string, unknown>; recordedAt: string; title: string }>;
+  rewardRecords?: Array<{ id: string; points: number; reason: string; source: "completion" | "streak" | "bonus" | "parent" }>;
+  activeRun?: {
+    actualDurationMinutes?: number;
+    completedAt?: string;
+    endAt: string;
+    id: string;
+    notificationId?: string;
+    overdue?: boolean;
+    overdueMinutes?: number;
+    plannedDurationMinutes: number;
+    startAt: string;
+    status: "running" | "paused" | "completed";
+    targetApp?: string;
+  };
 };
 
 const todayMissions: Array<DemoMission & { id: string }> = [
@@ -166,7 +185,8 @@ const todayMissions: Array<DemoMission & { id: string }> = [
     detail: "Do soccer drills or outdoor play with movement.",
     goals: ["Warm up safely", "Practice ball control", "Drink water after training"],
     rewardMinutes: 10,
-    timeLimitMinutes: 30,
+    timeLimitMinutes: 2,
+    targetApp: "Maps",
     energy: 10,
     progress: 0,
     total: 1,
@@ -224,12 +244,13 @@ const createMissionSchema = z.object({
   title: z.string().min(1),
   category: z.string().min(1),
   target: z.string().min(1),
+  targetApp: z.string().optional(),
   detail: z.string().default(""),
   goals: z.array(z.string()).default([]),
   occurrenceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   repeatRule: z.string().min(1).optional(),
-  rewardMinutes: z.number().int().min(0).default(10),
-  energy: z.number().int().min(0).default(10),
+  rewardMinutes: z.number().int().default(10),
+  energy: z.number().int().default(10),
   progress: z.number().int().min(0).default(0),
   scheduledTime: z.string().optional(),
   timeLimitMinutes: z.number().int().min(1).optional(),
@@ -245,10 +266,11 @@ const taskTemplateSchema = z.object({
   title: z.string().min(1),
   category: z.string().min(1),
   target: z.string().min(1),
+  targetApp: z.string().optional(),
   goals: z.array(z.string()).default([]),
   repeatRule: z.string().min(1).default("FREQ=DAILY"),
-  rewardMinutes: z.number().int().min(0).default(10),
-  energy: z.number().int().min(0).default(10),
+  rewardMinutes: z.number().int().default(10),
+  energy: z.number().int().default(10),
   scheduledTime: z.string().optional(),
   timeLimitMinutes: z.number().int().min(1).optional(),
   total: z.number().int().min(1).default(1),
@@ -271,6 +293,34 @@ const completeMissionSchema = z.object({
 const timerEventSchema = z.object({
   eventType: z.enum(["timer_start", "timer_pause", "timer_resume", "timer_end"]),
   remainingSeconds: z.number().int().min(0).optional()
+});
+
+const startTaskRunSchema = z.object({
+  endAt: z.string().datetime(),
+  notificationId: z.string().optional(),
+  plannedDurationMinutes: z.number().int().min(1),
+  startAt: z.string().datetime(),
+  targetApp: z.string().optional()
+});
+
+const finishTaskRunSchema = z.object({
+  actualDurationMinutes: z.number().int().min(0),
+  completedAt: z.string().datetime(),
+  overdue: z.boolean(),
+  overdueMinutes: z.number().int().min(0)
+});
+
+const pauseTaskRunSchema = z.object({
+  actualDurationMinutes: z.number().int().min(0),
+  overdue: z.boolean(),
+  overdueMinutes: z.number().int().min(0),
+  pausedAt: z.string().datetime()
+});
+
+const resumeTaskRunSchema = z.object({
+  endAt: z.string().datetime(),
+  notificationId: z.string().optional(),
+  resumedAt: z.string().datetime()
 });
 
 app.get("/health", (c) => c.json({ ok: true, db: dbEnabled, service: "koala-habit-server" }));
@@ -573,6 +623,7 @@ app.get("/families/demo/templates", async (c) => {
       title: mission.title,
       category: mission.category,
       target: mission.target,
+      targetApp: mission.targetApp,
       goals: mission.goals,
       rewardMinutes: mission.rewardMinutes,
       timeLimitMinutes: mission.timeLimitMinutes,
@@ -674,6 +725,7 @@ app.post("/families/demo/missions", async (c) => {
     title: payload.title,
     category: payload.category,
     target: payload.target,
+    targetApp: payload.targetApp,
     detail: payload.detail,
     goals: payload.goals,
     rewardMinutes: payload.rewardMinutes,
@@ -686,6 +738,7 @@ app.post("/families/demo/missions", async (c) => {
     eventRecords: [
       demoEvent(missionIdFromTitle(payload.title), "created", "Task created", `Task "${payload.title || "New task"}" was created.`, {
         status: payload.status,
+        targetApp: payload.targetApp ?? null,
         timeLimitMinutes: payload.timeLimitMinutes ?? null
       })
     ],
@@ -734,6 +787,7 @@ app.patch("/families/demo/missions/:id", async (c) => {
       ...(previous.eventRecords ?? []),
       demoEvent(missionId, "updated", "Task updated", `Task "${payload.title}" details were updated.`, {
         scheduledTime: payload.scheduledTime ?? null,
+        targetApp: payload.targetApp ?? null,
         timeLimitMinutes: payload.timeLimitMinutes ?? null
       }),
       ...(previousStatus !== nextStatus
@@ -780,6 +834,42 @@ app.delete("/families/demo/missions/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+app.post("/families/demo/missions/:id/reset-timer", async (c) => {
+  const missionId = c.req.param("id");
+
+  if (dbEnabled) {
+    const mission = await resetTimedMission(missionId);
+
+    if (!mission) {
+      return c.json({ error: "Mission not found" }, 404);
+    }
+
+    return c.json({ mission });
+  }
+
+  const mission = todayMissions.find((item) => item.id === missionId);
+
+  if (!mission) {
+    return c.json({ error: "Mission not found" }, 404);
+  }
+
+  mission.activeRun = undefined;
+  mission.actualStartAt = undefined;
+  mission.actualEndAt = undefined;
+  mission.completionRecord = undefined;
+  mission.progress = 0;
+  mission.status = "todo";
+  mission.rewardRecords = [];
+  mission.eventRecords = [
+    ...(mission.eventRecords ?? []).filter((event) => !["timer_start", "timer_pause", "timer_resume", "timer_end", "completion"].includes(event.eventType)),
+    demoEvent(missionId, "status_change", "Timed task reset", `Timed task "${mission.title}" was reset by parent.`, {
+      reset: "timed_task"
+    })
+  ];
+
+  return c.json({ mission });
+});
+
 app.post("/families/demo/missions/:id/complete", async (c) => {
   const missionId = c.req.param("id");
   const payload = completeMissionSchema.parse(await c.req.json().catch(() => ({})));
@@ -811,6 +901,16 @@ app.post("/families/demo/missions/:id/complete", async (c) => {
     parentConfirmed: true,
     startedAt: payload.startedAt
   };
+  mission.rewardRecords = mission.rewardRecords?.length
+    ? mission.rewardRecords
+    : [
+        {
+          id: `reward-${missionId}-${Date.now()}`,
+          points: fallbackRewardPoints(mission, false),
+          reason: mission.category === "entertainment" ? "Entertainment time used" : `Completed ${mission.title}`,
+          source: "completion"
+        }
+      ];
   mission.eventRecords = [
     ...(mission.eventRecords ?? []),
     ...(previousStatus !== "done"
@@ -871,6 +971,189 @@ app.post("/families/demo/missions/:id/timer-events", async (c) => {
 
   return c.json({ mission }, 201);
 });
+
+app.post("/families/demo/missions/:id/runs", async (c) => {
+  const missionId = c.req.param("id");
+  const payload = startTaskRunSchema.parse(await c.req.json());
+
+  if (dbEnabled) {
+    const mission = await startTaskRun(missionId, payload);
+
+    if (!mission) {
+      return c.json({ error: "Mission not found" }, 404);
+    }
+
+    return c.json({ mission }, 201);
+  }
+
+  const mission = todayMissions.find((item) => item.id === missionId);
+
+  if (!mission) {
+    return c.json({ error: "Mission not found" }, 404);
+  }
+
+  if (mission.activeRun?.status === "completed" || mission.eventRecords?.some(isAppRunFinishedEvent)) {
+    return c.json({ mission });
+  }
+
+  mission.activeRun = {
+    id: `run-${missionId}-${Date.now()}`,
+    status: "running",
+    ...payload
+  };
+  mission.actualStartAt = payload.startAt;
+  mission.eventRecords = [
+    ...(mission.eventRecords ?? []),
+    demoEvent(missionId, "timer_start", "App run started", `${payload.targetApp ?? "Target app"} started.`, {
+      endAt: payload.endAt,
+      plannedDurationMinutes: payload.plannedDurationMinutes,
+      targetApp: payload.targetApp ?? null
+    })
+  ];
+
+  return c.json({ mission }, 201);
+});
+
+app.post("/families/demo/missions/:id/runs/:runId/pause", async (c) => {
+  const missionId = c.req.param("id");
+  const runId = c.req.param("runId");
+  const payload = pauseTaskRunSchema.parse(await c.req.json());
+
+  if (dbEnabled) {
+    const mission = await pauseTaskRun(missionId, runId, payload);
+
+    if (!mission) {
+      return c.json({ error: "Task run not found" }, 404);
+    }
+
+    return c.json({ mission });
+  }
+
+  const mission = todayMissions.find((item) => item.id === missionId);
+
+  if (!mission?.activeRun || mission.activeRun.id !== runId || mission.activeRun.status !== "running") {
+    return c.json({ error: "Task run not found" }, 404);
+  }
+
+  mission.activeRun = {
+    ...mission.activeRun,
+    ...payload,
+    completedAt: payload.pausedAt,
+    status: "paused"
+  };
+  mission.eventRecords = [
+    ...(mission.eventRecords ?? []),
+    demoEvent(missionId, "timer_pause", "App run paused", `${mission.targetApp ?? "Target app"} paused after ${payload.actualDurationMinutes} minutes.`, {
+      actualDurationMinutes: payload.actualDurationMinutes,
+      overdue: payload.overdue,
+      overdueMinutes: payload.overdueMinutes,
+      targetApp: mission.targetApp ?? null
+    })
+  ];
+
+  return c.json({ mission });
+});
+
+app.post("/families/demo/missions/:id/runs/:runId/resume", async (c) => {
+  const missionId = c.req.param("id");
+  const runId = c.req.param("runId");
+  const payload = resumeTaskRunSchema.parse(await c.req.json());
+
+  if (dbEnabled) {
+    const mission = await resumeTaskRun(missionId, runId, payload);
+
+    if (!mission) {
+      return c.json({ error: "Task run not found" }, 404);
+    }
+
+    return c.json({ mission });
+  }
+
+  const mission = todayMissions.find((item) => item.id === missionId);
+
+  if (!mission?.activeRun || mission.activeRun.id !== runId || mission.activeRun.status !== "paused") {
+    return c.json({ error: "Task run not found" }, 404);
+  }
+
+  mission.activeRun = {
+    ...mission.activeRun,
+    completedAt: undefined,
+    endAt: payload.endAt,
+    notificationId: payload.notificationId,
+    status: "running"
+  };
+  mission.eventRecords = [
+    ...(mission.eventRecords ?? []),
+    demoEvent(missionId, "timer_resume", "App run resumed", `${mission.targetApp ?? "Target app"} timer resumed.`, {
+      endAt: payload.endAt,
+      targetApp: mission.targetApp ?? null
+    })
+  ];
+
+  return c.json({ mission });
+});
+
+app.post("/families/demo/missions/:id/runs/:runId/finish", async (c) => {
+  const missionId = c.req.param("id");
+  const runId = c.req.param("runId");
+  const payload = finishTaskRunSchema.parse(await c.req.json());
+
+  if (dbEnabled) {
+    const mission = await finishTaskRun(missionId, runId, payload);
+
+    if (!mission) {
+      return c.json({ error: "Task run not found" }, 404);
+    }
+
+    return c.json({ mission });
+  }
+
+  const mission = todayMissions.find((item) => item.id === missionId);
+
+  if (!mission?.activeRun || mission.activeRun.id !== runId) {
+    return c.json({ error: "Task run not found" }, 404);
+  }
+
+  mission.activeRun = {
+    ...mission.activeRun,
+    ...payload,
+    status: "completed"
+  };
+  mission.actualEndAt = payload.completedAt;
+  mission.progress = mission.total;
+  mission.status = "done";
+  mission.rewardRecords = mission.rewardRecords?.length
+    ? mission.rewardRecords
+    : [
+        {
+          id: `reward-${missionId}-${Date.now()}`,
+          points: fallbackRewardPoints(mission, payload.overdue),
+          reason: payload.overdue ? "Timed task overdue penalty" : mission.category === "entertainment" ? "Entertainment time used" : `Completed ${mission.title}`,
+          source: "completion"
+        }
+      ];
+  mission.eventRecords = [
+    ...(mission.eventRecords ?? []),
+    demoEvent(missionId, "completion", "App run finished", `${mission.targetApp ?? "Target app"} finished in ${payload.actualDurationMinutes} minutes.`, {
+      actualDurationMinutes: payload.actualDurationMinutes,
+      overdue: payload.overdue,
+      overdueMinutes: payload.overdueMinutes,
+      targetApp: mission.targetApp ?? null
+    })
+  ];
+
+  return c.json({ mission });
+});
+
+function fallbackRewardPoints(mission: MissionInput, isOverdue: boolean) {
+  const basePoints = mission.category === "entertainment" ? -Math.abs(mission.energy) : mission.energy;
+
+  if (mission.timeLimitMinutes && isOverdue) {
+    return -Math.abs(basePoints) * 2;
+  }
+
+  return basePoints;
+}
 
 app.post("/families/demo/missions/:id/attachments", async (c) => {
   const missionId = c.req.param("id");
@@ -949,6 +1232,10 @@ function demoEvent(
     recordedAt: new Date().toISOString(),
     title
   };
+}
+
+function isAppRunFinishedEvent(event: { title: string }) {
+  return event.title === "App run finished" || event.title === "Entertainment finished";
 }
 
 function timerEventTitle(eventType: "timer_start" | "timer_pause" | "timer_resume" | "timer_end") {

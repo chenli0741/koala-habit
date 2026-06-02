@@ -1,4 +1,5 @@
-export type MissionCategory = "reading" | "language" | "math" | "music" | "sport";
+export type MissionCategory = "reading" | "language" | "math" | "music" | "sport" | "entertainment";
+export type MissionExecutionType = "completion" | "submission" | "timed";
 export type MissionStatus = "done" | "todo" | "in_progress" | "expired";
 export type OccurrenceStatus = "pending" | "done" | "skipped" | "expired";
 
@@ -38,6 +39,20 @@ export type TaskEventRecord = {
   title: string;
 };
 
+export type TaskRun = {
+  actualDurationMinutes?: number;
+  completedAt?: string;
+  endAt: string;
+  id: string;
+  notificationId?: string;
+  overdue?: boolean;
+  overdueMinutes?: number;
+  plannedDurationMinutes: number;
+  startAt: string;
+  status: "running" | "paused" | "completed";
+  targetApp?: string;
+};
+
 export type TaskPlanDetail = {
   attachments: TaskAttachment[];
   id: string;
@@ -69,7 +84,10 @@ export type Mission = {
   completionRecord?: CompletionRecord;
   rewardRecords: RewardRecord[];
   eventRecords: TaskEventRecord[];
+  activeRun?: TaskRun;
+  executionType: MissionExecutionType;
   timeLimitMinutes?: number;
+  targetApp?: string;
   actualStartAt?: string;
   actualEndAt?: string;
   energy: number;
@@ -126,6 +144,7 @@ export const missions: Mission[] = [
     },
     rewardRecords: [{ id: "reward-english-reading", points: 10, reason: "Completed reading", source: "completion" }],
     eventRecords: [],
+    executionType: "submission",
     timeLimitMinutes: 20,
     actualStartAt: "2026-07-01T19:08:00.000Z",
     actualEndAt: "2026-07-01T19:30:00.000Z",
@@ -156,6 +175,7 @@ export const missions: Mission[] = [
     },
     rewardRecords: [],
     eventRecords: [],
+    executionType: "submission",
     timeLimitMinutes: 15,
     energy: 10,
     progress: 0,
@@ -184,6 +204,7 @@ export const missions: Mission[] = [
     },
     rewardRecords: [],
     eventRecords: [],
+    executionType: "submission",
     timeLimitMinutes: 10,
     energy: 10,
     progress: 6,
@@ -212,6 +233,7 @@ export const missions: Mission[] = [
     },
     rewardRecords: [],
     eventRecords: [],
+    executionType: "submission",
     timeLimitMinutes: 20,
     energy: 10,
     progress: 0,
@@ -240,7 +262,9 @@ export const missions: Mission[] = [
     },
     rewardRecords: [],
     eventRecords: [],
-    timeLimitMinutes: 30,
+    executionType: "timed",
+    timeLimitMinutes: 2,
+    targetApp: "Maps",
     energy: 10,
     progress: 0,
     total: 1,

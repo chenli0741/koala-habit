@@ -8,18 +8,26 @@ import {
   deleteMissionApi,
   fetchFamily,
   fetchToday,
+  finishEntertainmentRunApi,
+  FinishEntertainmentRunPayload,
   loginChildApi,
   loginParentApi,
   MissionEvidence,
   MissionTimerEventPayload,
+  pauseEntertainmentRunApi,
+  PauseEntertainmentRunPayload,
   recordMissionTimerEventApi,
   registerParentApi,
+  resumeEntertainmentRunApi,
+  ResumeEntertainmentRunPayload,
   signInGoogleParentApi,
   signInParentApi,
+  startEntertainmentRunApi,
+  StartEntertainmentRunPayload,
   toMissionPayload,
   updateMissionApi
 } from "./api";
-import { childProfile, Mission, MissionCategory, TaskAttachment, TaskEventType } from "./demo";
+import { childProfile, Mission, MissionCategory, MissionExecutionType, TaskAttachment, TaskEventType } from "./demo";
 import { Language, translate } from "./i18n";
 
 export type ParentAccount = {
@@ -43,6 +51,8 @@ type MissionDraft = {
   title: string;
   category: MissionCategory;
   target: string;
+  targetApp?: string;
+  executionType?: MissionExecutionType;
   detail: string;
   goals: string[];
   energy: number;
@@ -73,6 +83,10 @@ type KoalaStore = {
   deleteMission: (missionId: string) => Promise<void>;
   completeMission: (missionId: string, evidence?: MissionEvidence) => Promise<void>;
   recordMissionTimerEvent: (missionId: string, payload: MissionTimerEventPayload) => Promise<void>;
+  startEntertainmentRun: (missionId: string, payload: StartEntertainmentRunPayload) => Promise<void>;
+  finishEntertainmentRun: (missionId: string, runId: string, payload: FinishEntertainmentRunPayload) => Promise<void>;
+  pauseEntertainmentRun: (missionId: string, runId: string, payload: PauseEntertainmentRunPayload) => Promise<void>;
+  resumeEntertainmentRun: (missionId: string, runId: string, payload: ResumeEntertainmentRunPayload) => Promise<void>;
   getMission: (missionId: string | string[] | undefined) => Mission | undefined;
   setLanguage: (language: Language) => void;
   t: (key: string) => string;
@@ -324,8 +338,10 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
       },
       addMission: async (draft) => {
         const missionId = uniqueMissionId(draft.title, missionItems);
+        const executionType = draft.executionType ?? inferDraftExecutionType(draft);
         const localMission = {
           ...draft,
+          executionType,
           id: missionId,
           templateId: `template-${missionId}`,
           occurrenceDate: new Date().toISOString().slice(0, 10),
@@ -524,6 +540,141 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setMissionItems((current) => current);
         }
       },
+      startEntertainmentRun: async (missionId, payload) => {
+        const runId = `run-${missionId}-${Date.now()}`;
+        setMissionItems((current) =>
+          current.map((mission) =>
+            mission.id === missionId &&
+            mission.activeRun?.status !== "completed" &&
+            !mission.eventRecords.some(isAppRunFinishedEvent)
+              ? {
+                  ...mission,
+                  activeRun: {
+                    id: runId,
+                    status: "running",
+                    ...payload
+                  },
+                  eventRecords: [
+                    ...mission.eventRecords,
+                    taskEvent(missionId, "timer_start", "App run started", `${payload.targetApp ?? "Target app"} started.`, {
+                      endAt: payload.endAt,
+                      plannedDurationMinutes: payload.plannedDurationMinutes,
+                      targetApp: payload.targetApp ?? null
+                    })
+                  ]
+                }
+              : mission
+          )
+        );
+
+        try {
+          const storedMission = await startEntertainmentRunApi(missionId, payload);
+          setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
+        } catch {
+          setMissionItems((current) => current);
+        }
+      },
+      finishEntertainmentRun: async (missionId, runId, payload) => {
+        setMissionItems((current) =>
+          current.map((mission) =>
+            mission.id === missionId
+              ? {
+                  ...mission,
+                  activeRun: mission.activeRun
+                    ? {
+                        ...mission.activeRun,
+                        ...payload,
+                        status: "completed"
+                      }
+                    : undefined,
+                  actualEndAt: payload.completedAt,
+                  eventRecords: [
+                    ...mission.eventRecords,
+                    taskEvent(missionId, "completion", "App run finished", `Target app finished in ${payload.actualDurationMinutes} minutes.`, {
+                      overdue: payload.overdue,
+                      overdueMinutes: payload.overdueMinutes
+                    })
+                  ]
+                }
+              : mission
+          )
+        );
+
+        try {
+          const storedMission = await finishEntertainmentRunApi(missionId, runId, payload);
+          setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
+        } catch {
+          setMissionItems((current) => current);
+        }
+      },
+      pauseEntertainmentRun: async (missionId, runId, payload) => {
+        setMissionItems((current) =>
+          current.map((mission) =>
+            mission.id === missionId
+              ? {
+                  ...mission,
+                  activeRun: mission.activeRun
+                    ? {
+                        ...mission.activeRun,
+                        actualDurationMinutes: payload.actualDurationMinutes,
+                        completedAt: payload.pausedAt,
+                        overdue: payload.overdue,
+                        overdueMinutes: payload.overdueMinutes,
+                        status: "paused"
+                      }
+                    : undefined,
+                  eventRecords: [
+                    ...mission.eventRecords,
+                    taskEvent(missionId, "timer_pause", "App run paused", `Target app paused after ${payload.actualDurationMinutes} minutes.`, {
+                      overdue: payload.overdue,
+                      overdueMinutes: payload.overdueMinutes
+                    })
+                  ]
+                }
+              : mission
+          )
+        );
+
+        try {
+          const storedMission = await pauseEntertainmentRunApi(missionId, runId, payload);
+          setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
+        } catch {
+          setMissionItems((current) => current);
+        }
+      },
+      resumeEntertainmentRun: async (missionId, runId, payload) => {
+        setMissionItems((current) =>
+          current.map((mission) =>
+            mission.id === missionId
+              ? {
+                  ...mission,
+                  activeRun: mission.activeRun
+                    ? {
+                        ...mission.activeRun,
+                        completedAt: undefined,
+                        endAt: payload.endAt,
+                        notificationId: payload.notificationId,
+                        status: "running"
+                      }
+                    : undefined,
+                  eventRecords: [
+                    ...mission.eventRecords,
+                    taskEvent(missionId, "timer_resume", "App run resumed", "Target app timer resumed.", {
+                      endAt: payload.endAt
+                    })
+                  ]
+                }
+              : mission
+          )
+        );
+
+        try {
+          const storedMission = await resumeEntertainmentRunApi(missionId, runId, payload);
+          setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
+        } catch {
+          setMissionItems((current) => current);
+        }
+      },
       setLanguage,
       t: (key) => translate(language, key)
     }),
@@ -628,6 +779,22 @@ function timerEventTitle(eventType: MissionTimerEventPayload["eventType"]) {
 function timerEventContent(eventType: MissionTimerEventPayload["eventType"], remainingSeconds?: number) {
   const remainingText = remainingSeconds === undefined ? "" : ` Remaining ${remainingSeconds} seconds.`;
   return `${timerEventTitle(eventType)}.${remainingText}`;
+}
+
+function inferDraftExecutionType(draft: Pick<MissionDraft, "category" | "targetApp" | "timeLimitMinutes">): MissionExecutionType {
+  if (draft.targetApp || draft.category === "entertainment") {
+    return "timed";
+  }
+
+  if (["reading", "language", "math", "music"].includes(draft.category)) {
+    return "submission";
+  }
+
+  return "completion";
+}
+
+function isAppRunFinishedEvent(event: Mission["eventRecords"][number]) {
+  return event.title === "App run finished" || event.title === "Entertainment finished";
 }
 
 export function useKoalaStore() {

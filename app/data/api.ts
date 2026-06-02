@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import { Mission, MissionCategory, TaskAttachment } from "./demo";
+import { Mission, MissionCategory, MissionExecutionType, TaskAttachment } from "./demo";
 import type { ChildAccount, ParentAccount } from "./store";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? Constants.expoConfig?.extra?.apiUrl ?? getDefaultApiBaseUrl();
@@ -62,7 +62,22 @@ type ServerMission = {
     recordedAt: string;
     title: string;
   }>;
+  activeRun?: {
+    actualDurationMinutes?: number;
+    completedAt?: string;
+    endAt: string;
+    id: string;
+    notificationId?: string;
+    overdue?: boolean;
+    overdueMinutes?: number;
+    plannedDurationMinutes: number;
+    startAt: string;
+    status: "running" | "paused" | "completed";
+    targetApp?: string;
+  };
+  executionType?: MissionExecutionType;
   timeLimitMinutes?: number;
+  targetApp?: string;
   energy: number;
   progress?: number;
   total?: number;
@@ -79,8 +94,10 @@ type MissionPayload = {
   target: string;
   detail: string;
   goals: string[];
+  executionType?: MissionExecutionType;
   rewardMinutes: number;
   timeLimitMinutes?: number;
+  targetApp?: string;
   energy: number;
   progress: number;
   total: number;
@@ -236,6 +253,34 @@ export type MissionTimerEventPayload = {
   remainingSeconds?: number;
 };
 
+export type StartEntertainmentRunPayload = {
+  endAt: string;
+  notificationId?: string;
+  plannedDurationMinutes: number;
+  startAt: string;
+  targetApp?: string;
+};
+
+export type FinishEntertainmentRunPayload = {
+  actualDurationMinutes: number;
+  completedAt: string;
+  overdue: boolean;
+  overdueMinutes: number;
+};
+
+export type PauseEntertainmentRunPayload = {
+  actualDurationMinutes: number;
+  overdue: boolean;
+  overdueMinutes: number;
+  pausedAt: string;
+};
+
+export type ResumeEntertainmentRunPayload = {
+  endAt: string;
+  notificationId?: string;
+  resumedAt: string;
+};
+
 export async function completeMissionApi(missionId: string, evidence?: MissionEvidence) {
   const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/complete`, {
     body: JSON.stringify(evidence ?? {}),
@@ -247,6 +292,42 @@ export async function completeMissionApi(missionId: string, evidence?: MissionEv
 
 export async function recordMissionTimerEventApi(missionId: string, payload: MissionTimerEventPayload) {
   const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/timer-events`, {
+    body: JSON.stringify(payload),
+    method: "POST"
+  });
+
+  return mapMission(data.mission);
+}
+
+export async function startEntertainmentRunApi(missionId: string, payload: StartEntertainmentRunPayload) {
+  const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/runs`, {
+    body: JSON.stringify(payload),
+    method: "POST"
+  });
+
+  return mapMission(data.mission);
+}
+
+export async function finishEntertainmentRunApi(missionId: string, runId: string, payload: FinishEntertainmentRunPayload) {
+  const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/runs/${runId}/finish`, {
+    body: JSON.stringify(payload),
+    method: "POST"
+  });
+
+  return mapMission(data.mission);
+}
+
+export async function pauseEntertainmentRunApi(missionId: string, runId: string, payload: PauseEntertainmentRunPayload) {
+  const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/runs/${runId}/pause`, {
+    body: JSON.stringify(payload),
+    method: "POST"
+  });
+
+  return mapMission(data.mission);
+}
+
+export async function resumeEntertainmentRunApi(missionId: string, runId: string, payload: ResumeEntertainmentRunPayload) {
+  const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/runs/${runId}/resume`, {
     body: JSON.stringify(payload),
     method: "POST"
   });
@@ -270,6 +351,8 @@ export function toMissionPayload(childId: string, draft: Omit<Mission, "id">): M
     title: draft.title,
     category: draft.category,
     target: draft.target,
+    targetApp: draft.targetApp,
+    executionType: draft.executionType,
     detail: draft.detail,
     goals: draft.goals,
     rewardMinutes: draft.energy,
@@ -355,7 +438,10 @@ function mapMission(mission: ServerMission): Mission {
     completionRecord: mission.completionRecord,
     rewardRecords: mission.rewardRecords ?? [],
     eventRecords: mission.eventRecords ?? [],
-    timeLimitMinutes: mission.timeLimitMinutes,
+    activeRun: mission.activeRun,
+    executionType: mission.executionType ?? inferExecutionType(mission),
+    timeLimitMinutes: demoTimeLimitForMission(mission.title) ?? mission.timeLimitMinutes,
+    targetApp: mission.targetApp ?? demoTargetAppForMission(mission.title),
     actualStartAt: mission.actualStartAt,
     actualEndAt: mission.actualEndAt,
     energy: mission.energy,
@@ -365,4 +451,36 @@ function mapMission(mission: ServerMission): Mission {
     occurrenceStatus: mission.occurrenceStatus ?? (mission.status === "done" ? "done" : "pending"),
     tone: mission.tone ?? "#3F7D58"
   };
+}
+
+function inferExecutionType(mission: Pick<ServerMission, "category" | "targetApp" | "timeLimitMinutes" | "title">): MissionExecutionType {
+  if (mission.targetApp || demoTargetAppForMission(mission.title)) {
+    return "timed";
+  }
+
+  if (mission.timeLimitMinutes && mission.category === "entertainment") {
+    return "timed";
+  }
+
+  if (["reading", "language", "math", "music"].includes(mission.category)) {
+    return "submission";
+  }
+
+  return "completion";
+}
+
+function demoTargetAppForMission(title: string) {
+  if (title === "日常体能训练" || title === "电视时间" || title === "Soccer") {
+    return "Maps";
+  }
+
+  return undefined;
+}
+
+function demoTimeLimitForMission(title: string) {
+  if (title === "日常体能训练" || title === "电视时间" || title === "Soccer") {
+    return 2;
+  }
+
+  return undefined;
 }
