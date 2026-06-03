@@ -978,36 +978,50 @@ async function cancelTimerNotification(notificationId?: string) {
 }
 
 async function openTargetApp(targetApp?: string) {
-  const url = targetAppUrl(targetApp);
+  const launch = targetAppLaunch(targetApp);
 
-  debugTargetApp("open requested", { platform: Platform.OS, targetApp, url });
+  debugTargetApp("open requested", { launch, platform: Platform.OS, targetApp });
 
-  if (!url) {
+  if (!launch.url) {
     debugTargetApp("open skipped: no url", { targetApp });
     return;
   }
 
   try {
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      debugTargetApp("web redirect", { url });
-      window.location.href = url;
+      const webUrl = launch.fallbackUrl ?? launch.url;
+      debugTargetApp("web redirect", { webUrl });
+      window.location.href = webUrl;
       return;
     }
 
-    const canOpen = await Linking.canOpenURL(url);
-    debugTargetApp("canOpenURL result", { canOpen, url });
+    if (launch.mode === "browser") {
+      debugTargetApp("browser url open", { url: launch.url });
+      await Linking.openURL(launch.url);
+      return;
+    }
+
+    const canOpen = await Linking.canOpenURL(launch.url);
+    debugTargetApp("canOpenURL result", { canOpen, url: launch.url });
     if (!canOpen) {
-      const fallbackUrl = fallbackTargetAppUrl(targetApp);
+      const fallbackUrl = launch.fallbackUrl;
+      if (!fallbackUrl) {
+        debugTargetApp("open skipped: no fallback url", { targetApp });
+        return;
+      }
       debugTargetApp("using fallback url", { fallbackUrl, targetApp });
       await Linking.openURL(fallbackUrl);
       debugTargetApp("fallback openURL succeeded", { fallbackUrl });
       return;
     }
 
-    await Linking.openURL(url);
-    debugTargetApp("openURL succeeded", { url });
+    await Linking.openURL(launch.url);
+    debugTargetApp("openURL succeeded", { url: launch.url });
   } catch {
-    const fallbackUrl = fallbackTargetAppUrl(targetApp);
+    const fallbackUrl = launch.fallbackUrl;
+    if (!fallbackUrl || fallbackUrl === launch.url) {
+      return;
+    }
     debugTargetApp("openURL failed, trying fallback", { fallbackUrl, targetApp });
     try {
       await Linking.openURL(fallbackUrl);
@@ -1018,11 +1032,88 @@ async function openTargetApp(targetApp?: string) {
   }
 }
 
-function fallbackTargetAppUrl(targetApp?: string) {
-  const normalized = targetApp?.trim().toLowerCase();
+type TargetAppLaunch = {
+  fallbackUrl?: string;
+  mode: "app" | "browser";
+  url?: string;
+};
+
+function targetAppLaunch(targetApp?: string): TargetAppLaunch {
+  const config = parseTargetAppConfig(targetApp);
+  const browserUrl = browserTargetAppUrl(config.value);
+
+  if (config.mode === "browser") {
+    return {
+      fallbackUrl: browserUrl,
+      mode: "browser",
+      url: browserUrl
+    };
+  }
+
+  return {
+    fallbackUrl: browserUrl,
+    mode: "app",
+    url: nativeTargetAppUrl(config.value)
+  };
+}
+
+function parseTargetAppConfig(targetApp?: string) {
+  const value = targetApp?.trim() ?? "";
+  const urlPrefix = /^url\s*:/i;
+
+  if (urlPrefix.test(value)) {
+    return {
+      mode: "browser" as const,
+      value: value.replace(urlPrefix, "").trim()
+    };
+  }
+
+  return {
+    mode: "app" as const,
+    value
+  };
+}
+
+function browserTargetAppUrl(targetApp?: string) {
+  const trimmed = targetApp?.trim();
+  const normalized = trimmed?.toLowerCase();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (isHttpUrl(trimmed)) {
+    return trimmed;
+  }
 
   if (normalized?.includes("youtube") || normalized?.includes("youtobe")) {
     return "https://www.youtube.com/";
+  }
+
+  if (normalized.includes("map") || normalized.includes("地图")) {
+    return "https://maps.apple.com/";
+  }
+
+  if (normalized.includes("apple music") || normalized === "music") {
+    return "https://music.apple.com/";
+  }
+
+  return isUrlLike(trimmed) ? trimmed : undefined;
+}
+
+function isHttpUrl(value?: string) {
+  return /^https?:\/\//i.test(value?.trim() ?? "");
+}
+
+function isUrlLike(value?: string) {
+  return /^[a-z][a-z0-9+.-]*:/i.test(value?.trim() ?? "");
+}
+
+function fallbackTargetAppUrl(targetApp?: string) {
+  const browserUrl = browserTargetAppUrl(parseTargetAppConfig(targetApp).value);
+
+  if (browserUrl) {
+    return browserUrl;
   }
 
   return "https://maps.apple.com/";
@@ -1037,6 +1128,10 @@ function readableError(error: unknown) {
 }
 
 function targetAppUrl(targetApp?: string) {
+  return targetAppLaunch(targetApp).url;
+}
+
+function nativeTargetAppUrl(targetApp?: string) {
   const normalized = targetApp?.trim().toLowerCase();
 
   if (!normalized) {
@@ -1048,7 +1143,7 @@ function targetAppUrl(targetApp?: string) {
   }
 
   if (normalized.includes("map") || normalized.includes("地图")) {
-    return "http://maps.apple.com/?q=";
+    return Platform.OS === "android" ? "geo:0,0?q=" : "maps://?q=";
   }
 
   if (normalized.includes("apple music") || normalized === "music") {
