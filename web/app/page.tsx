@@ -243,9 +243,18 @@ function tr(language: Language, key: string) {
 }
 
 const starterTemplates = [
-  { title: "English Reading", category: "reading", icon: "📘", target: "Read 20 min", energy: "10", tone: "#3F7D58" },
-  { title: "Math Practice", category: "math", icon: "➕", target: "10 questions", energy: "10", tone: "#4B6FA8" },
-  { title: "Piano Practice", category: "music", icon: "🎹", target: "Practice 20 min", energy: "10", tone: "#8B5E83" }
+  { title: "English Reading", category: "Eng", icon: "📘", target: "Read 20 min", energy: "10", tone: "#3F7D58" },
+  { title: "Math Practice", category: "Math", icon: "➕", target: "10 questions", energy: "10", tone: "#4B6FA8" },
+  { title: "Piano Practice", category: "Other", icon: "🎹", target: "Practice 20 min", energy: "10", tone: "#8B5E83" }
+];
+
+const categoryOptions = [
+  { label: "数学 Math", value: "Math" },
+  { label: "中文 Chinese", value: "Chinese" },
+  { label: "英文 Eng", value: "Eng" },
+  { label: "运动 Sports", value: "Sports" },
+  { label: "娱乐 Game", value: "Game" },
+  { label: "其他 Other", value: "Other" }
 ];
 
 const weekDayOptions = [
@@ -262,7 +271,7 @@ const workDailyRepeatRule = "FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR";
 const emptyTaskForm: TaskForm = {
   assessment: "Parent confirmation with optional photo or audio proof",
   attachments: [],
-  category: "reading",
+  category: "Math",
   detail: "What should the child do? Add steps, examples, and quality expectations.",
   energy: "10",
   goals: "Finish the task\nSubmit proof\nTell one reflection",
@@ -283,7 +292,7 @@ const emptyTaskForm: TaskForm = {
 
 const emptyTemplateForm: TemplateForm = {
   active: true,
-  category: "reading",
+  category: "Math",
   energy: "10",
   goals: "Finish the task\nSubmit proof\nTell one reflection",
   icon: "📌",
@@ -443,7 +452,7 @@ export default function Page() {
     }
 
     const body = JSON.stringify({
-      category: taskForm.category,
+      category: normalizeCategory(taskForm.category),
       childId: activeChild.id,
       attachments: taskForm.attachments,
       detail: buildTaskDetail(taskForm),
@@ -457,7 +466,7 @@ export default function Page() {
       scheduledTime: taskForm.scheduledTime,
       status: "todo",
       target: taskForm.target,
-      targetApp: taskForm.targetApp || undefined,
+      targetApp: normalizeTargetApps(taskForm.targetApp) || undefined,
       timeLimitMinutes: taskForm.timeLimitMinutes ? Number(taskForm.timeLimitMinutes) : undefined,
       title: taskForm.title || t("newTask"),
       tone: taskForm.tone,
@@ -584,7 +593,7 @@ export default function Page() {
     setTaskForm({
       ...emptyTaskForm,
       attachments: mission.planDetail?.attachments ?? [],
-      category: mission.category,
+      category: normalizeCategory(mission.category),
       detail: mission.detail ?? "",
       energy: String(mission.energy),
       goals: (mission.goals ?? []).join("\n"),
@@ -775,7 +784,7 @@ export default function Page() {
                   <div className="taskIcon" style={{ background: mission.tone ?? "#3F7D58" }}>{mission.icon}</div>
                   <div>
                     <strong>{mission.title}</strong>
-                    <span>{formatMissionTime(mission)} · {mission.category} · {mission.target}</span>
+                    <span>{formatMissionTime(mission)} · {formatCategory(mission.category)} · {mission.target}</span>
                     <p>{mission.detail ?? mission.target}</p>
                   </div>
                   <span className={`status ${mission.status}`}>{mission.status}</span>
@@ -837,7 +846,7 @@ export default function Page() {
                   <div className="taskIcon" style={{ background: template.tone }}>{template.icon}</div>
                   <div>
                     <strong>{template.title}</strong>
-                    <span>{formatRepeatRule(template.repeatRule, t)} · {template.scheduledTime || t("anyTime")} · {template.category}</span>
+                    <span>{formatRepeatRule(template.repeatRule, t)} · {template.scheduledTime || t("anyTime")} · {formatCategory(template.category)}</span>
                     <p>{template.target}</p>
                   </div>
                   <span className={`status ${template.active ? "done" : "todo"}`}>{template.active ? "active" : "paused"}</span>
@@ -979,10 +988,10 @@ function TaskFormView({
       <div className="formGrid">
         <label>Icon<input value={form.icon} onChange={(event) => onChange({ ...form, icon: event.target.value })} /></label>
         <label>{t("taskName")}<input value={form.title} onChange={(event) => onChange({ ...form, title: event.target.value })} /></label>
-        <label>{t("category")}<input value={form.category} onChange={(event) => onChange({ ...form, category: event.target.value })} /></label>
+        <label>{t("category")}<CategorySelect value={form.category} onChange={(category) => onChange({ ...form, category })} /></label>
         <label>{t("themeColor")}<input type="color" value={form.tone} onChange={(event) => onChange({ ...form, tone: event.target.value })} /></label>
         <label className="wide">{t("dailyTarget")}<input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} /></label>
-        <label>{t("targetApp")}<input placeholder="YouTube" value={form.targetApp} onChange={(event) => onChange({ ...form, targetApp: event.target.value })} /></label>
+        <label>{t("targetApp")}<input placeholder="Maps;Youtobe" value={form.targetApp} onChange={(event) => onChange({ ...form, targetApp: event.target.value })} /></label>
         <label>{t("rewardEnergy")}<input type="number" value={form.energy} onChange={(event) => onChange({ ...form, energy: event.target.value })} /></label>
         <label>{t("totalSteps")}<input type="number" min="1" value={form.total} onChange={(event) => onChange({ ...form, total: event.target.value })} /></label>
         <label>{t("date")}<input type="date" value={form.occurrenceDate} onChange={(event) => onChange({ ...form, occurrenceDate: event.target.value })} /></label>
@@ -1021,6 +1030,18 @@ function TaskFormView({
       ) : null}
       <button type="submit">{editing ? t("saveChanges") : t("createTask")}</button>
     </form>
+  );
+}
+
+function CategorySelect({ onChange, value }: { onChange: (value: string) => void; value: string }) {
+  const normalizedValue = categoryOptions.some((option) => option.value === value) ? value : "other";
+
+  return (
+    <select value={normalizedValue} onChange={(event) => onChange(event.target.value)}>
+      {categoryOptions.map((option) => (
+        <option key={option.value} value={option.value}>{option.label}</option>
+      ))}
+    </select>
   );
 }
 
@@ -1075,7 +1096,7 @@ function TemplateFormView({
           </section>
           <dl className="detailGrid">
             <div><dt>{t("status")}</dt><dd>{selectedTemplate.active ? "active" : "paused"}</dd></div>
-            <div><dt>{t("category")}</dt><dd>{selectedTemplate.category}</dd></div>
+            <div><dt>{t("category")}</dt><dd>{formatCategory(selectedTemplate.category)}</dd></div>
             <div><dt>{t("reward")}</dt><dd>{selectedTemplate.energy}</dd></div>
             <div><dt>{t("totalSteps")}</dt><dd>{selectedTemplate.total}</dd></div>
           </dl>
@@ -1100,10 +1121,10 @@ function TemplateFormView({
           <div className="formGrid compact">
             <label>Icon<input value={form.icon} onChange={(event) => onChange({ ...form, icon: event.target.value })} /></label>
             <label>{t("taskName")}<input value={form.title} onChange={(event) => onChange({ ...form, title: event.target.value })} /></label>
-            <label>{t("category")}<input value={form.category} onChange={(event) => onChange({ ...form, category: event.target.value })} /></label>
+            <label>{t("category")}<CategorySelect value={form.category} onChange={(category) => onChange({ ...form, category })} /></label>
             <label>{t("themeColor")}<input type="color" value={form.tone} onChange={(event) => onChange({ ...form, tone: event.target.value })} /></label>
             <label className="wide">{t("dailyTarget")}<input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} /></label>
-            <label>{t("targetApp")}<input placeholder="YouTube" value={form.targetApp} onChange={(event) => onChange({ ...form, targetApp: event.target.value })} /></label>
+            <label>{t("targetApp")}<input placeholder="Maps;Youtobe" value={form.targetApp} onChange={(event) => onChange({ ...form, targetApp: event.target.value })} /></label>
             <label>{t("rewardEnergy")}<input type="number" value={form.energy} onChange={(event) => onChange({ ...form, energy: event.target.value })} /></label>
             <label>{t("totalSteps")}<input type="number" min="1" value={form.total} onChange={(event) => onChange({ ...form, total: event.target.value })} /></label>
             <label>{t("time")}<input type="time" value={form.scheduledTime} onChange={(event) => onChange({ ...form, scheduledTime: event.target.value })} /></label>
@@ -1301,6 +1322,8 @@ function isTimedMission(mission: Mission) {
     mission.activeRun ||
     hasTimerEvent ||
     mission.category === "entertainment" ||
+    mission.category === "Movies" ||
+    mission.category === "Game" ||
     knownTimedDemoTitles.has(mission.title)
   );
 }
@@ -1331,7 +1354,7 @@ function TaskDetail({
         <div>
           <p className="kicker">{t("taskContent")}</p>
           <h2>{mission.title}</h2>
-          <span>{mission.category} · {mission.target}</span>
+          <span>{formatCategory(mission.category)} · {mission.target}</span>
         </div>
       </div>
       {shouldShowTimedReset ? (
@@ -1447,7 +1470,7 @@ function buildTaskDetail(form: TaskForm) {
 function templatePayload(childId: string, form: TemplateForm) {
   return {
     active: form.active,
-    category: form.category,
+    category: normalizeCategory(form.category),
     childId,
     energy: Number(form.energy),
     goals: toList(form.goals),
@@ -1456,7 +1479,7 @@ function templatePayload(childId: string, form: TemplateForm) {
     rewardMinutes: Number(form.energy),
     scheduledTime: form.scheduledTime,
     target: form.target,
-    targetApp: form.targetApp || undefined,
+    targetApp: normalizeTargetApps(form.targetApp) || undefined,
     timeLimitMinutes: form.timeLimitMinutes ? Number(form.timeLimitMinutes) : undefined,
     title: form.title || "New template",
     tone: form.tone,
@@ -1464,10 +1487,55 @@ function templatePayload(childId: string, form: TemplateForm) {
   };
 }
 
+function normalizeTargetApps(value: string) {
+  return value
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join(";");
+}
+
+function normalizeCategory(value: string) {
+  if (categoryOptions.some((option) => option.value === value)) {
+    return value;
+  }
+
+  if (value === "reading" || value === "english") {
+    return "Eng";
+  }
+
+  if (value === "language" || value === "chinese") {
+    return "Chinese";
+  }
+
+  if (value === "math") {
+    return "Math";
+  }
+
+  if (value === "sport") {
+    return "Sports";
+  }
+
+  if (value === "entertainment" || value === "Movies") {
+    return "Game";
+  }
+
+  if (value === "other" || value === "music") {
+    return "Other";
+  }
+
+  return "Other";
+}
+
+function formatCategory(value: string) {
+  const category = normalizeCategory(value);
+  return categoryOptions.find((option) => option.value === category)?.label ?? "其他";
+}
+
 function templateToForm(template: TaskTemplate): TemplateForm {
   return {
     active: template.active,
-    category: template.category,
+    category: normalizeCategory(template.category),
     energy: String(template.energy),
     goals: template.goals.join("\n"),
     icon: template.icon,

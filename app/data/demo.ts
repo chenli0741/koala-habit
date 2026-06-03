@@ -1,4 +1,20 @@
-export type MissionCategory = "reading" | "language" | "math" | "music" | "sport" | "entertainment";
+export type MissionCategory =
+  | "Math"
+  | "Chinese"
+  | "Eng"
+  | "Sports"
+  | "Game"
+  | "Movies"
+  | "Other"
+  | "reading"
+  | "language"
+  | "math"
+  | "music"
+  | "sport"
+  | "entertainment"
+  | "chinese"
+  | "english"
+  | "other";
 export type MissionExecutionType = "completion" | "submission" | "timed";
 export type MissionStatus = "done" | "todo" | "in_progress" | "expired";
 export type OccurrenceStatus = "pending" | "done" | "skipped" | "expired";

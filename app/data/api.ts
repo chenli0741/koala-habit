@@ -458,11 +458,11 @@ function inferExecutionType(mission: Pick<ServerMission, "category" | "targetApp
     return "timed";
   }
 
-  if (mission.timeLimitMinutes && mission.category === "entertainment") {
+  if (mission.timeLimitMinutes && (mission.category === "entertainment" || mission.category === "Movies" || mission.category === "Game")) {
     return "timed";
   }
 
-  if (["reading", "language", "math", "music"].includes(mission.category)) {
+  if (["reading", "language", "math", "music", "chinese", "english", "Math", "Chinese", "Eng"].includes(mission.category)) {
     return "submission";
   }
 
@@ -471,7 +471,7 @@ function inferExecutionType(mission: Pick<ServerMission, "category" | "targetApp
 
 function demoTargetAppForMission(title: string) {
   if (title === "日常体能训练" || title === "电视时间" || title === "Soccer") {
-    return "Maps";
+    return title === "电视时间" ? "Maps;Youtobe" : "Maps";
   }
 
   return undefined;

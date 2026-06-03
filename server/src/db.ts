@@ -29,7 +29,7 @@ export type MissionInput = {
   repeatRule?: string;
   rewardMinutes: number;
   scheduledTime?: string;
-  status: "done" | "todo" | "in_progress";
+  status: "done" | "todo" | "in_progress" | "expired";
   target: string;
   targetApp?: string;
   timeLimitMinutes?: number;
@@ -1213,7 +1213,6 @@ export async function resetTimedMission(missionId: string) {
   }
 
   await pool!.query("delete from task_app_runs where occurrence_id = $1", [missionId]);
-  await pool!.query("delete from task_timer_events where occurrence_id = $1", [missionId]);
   await pool!.query("delete from completion_records where occurrence_id = $1", [missionId]);
   await pool!.query("delete from reward_records where occurrence_id = $1", [missionId]);
   await pool!.query(
@@ -1228,15 +1227,6 @@ export async function resetTimedMission(missionId: string) {
     `,
     [missionId]
   );
-  await pool!.query(
-    `
-      delete from task_events
-      where occurrence_id = $1
-        and event_type in ('timer_start', 'timer_pause', 'timer_resume', 'timer_end', 'completion')
-    `,
-    [missionId]
-  );
-
   await insertTaskEvent({
     childId: occurrence.child_id,
     content: `Timed task "${occurrence.title}" was reset by parent.`,
@@ -1311,7 +1301,7 @@ async function insertCompletionReward(
 }
 
 function calculateReward(input: { baseMinutes: number; basePoints: number; category: string; isOverdue: boolean; isTimed: boolean }) {
-  const isEntertainment = input.category === "entertainment";
+  const isEntertainment = input.category === "entertainment" || input.category === "Movies" || input.category === "Game";
   const signedBasePoints = isEntertainment ? -Math.abs(input.basePoints) : input.basePoints;
   const signedBaseMinutes = isEntertainment ? -Math.abs(input.baseMinutes) : input.baseMinutes;
 
@@ -1451,6 +1441,7 @@ export async function recordMissionTimerEvent(missionId: string, input: MissionT
       update task_occurrences
       set actual_start_at = case when $2 = 'timer_start' then coalesce(actual_start_at, now()) else actual_start_at end,
           actual_end_at = case when $2 = 'timer_end' then now() else actual_end_at end,
+          status = case when $2 = 'timer_end' and status <> 'done' then 'expired' else status end,
           updated_at = now()
       where id = $1
       returning id, child_id
@@ -1471,6 +1462,7 @@ export async function recordMissionTimerEvent(missionId: string, input: MissionT
         update task_occurrences
         set actual_start_at = case when $2 = 'timer_start' then coalesce(actual_start_at, now()) else actual_start_at end,
             actual_end_at = case when $2 = 'timer_end' then now() else actual_end_at end,
+            status = case when $2 = 'timer_end' and status <> 'done' then 'expired' else status end,
             updated_at = now()
         where id = $1
         returning id, child_id
@@ -1483,6 +1475,23 @@ export async function recordMissionTimerEvent(missionId: string, input: MissionT
 
   if (!occurrence) {
     return null;
+  }
+
+  if (input.eventType === "timer_end") {
+    await pool!.query(
+      `
+        update task_app_runs
+        set status = 'completed',
+            completed_at = coalesce(completed_at, now()),
+            actual_duration_minutes = coalesce(actual_duration_minutes, planned_duration_minutes),
+            overdue = coalesce(overdue, false),
+            overdue_minutes = coalesce(overdue_minutes, 0),
+            updated_at = now()
+        where occurrence_id = $1
+          and status in ('running', 'paused')
+      `,
+      [occurrenceId]
+    );
   }
 
   await insertTaskEvent({
@@ -1501,7 +1510,7 @@ export async function startTaskRun(missionId: string, input: StartTaskRunInput) 
   assertPool();
 
   let occurrenceId = missionId;
-  let occurrenceResult = await pool!.query("select id, child_id from task_occurrences where id = $1", [missionId]);
+  let occurrenceResult = await pool!.query("select id, child_id, status from task_occurrences where id = $1", [missionId]);
 
   if (occurrenceResult.rowCount === 0) {
     const materialized = await materializeVirtualOccurrence(missionId);
@@ -1511,13 +1520,17 @@ export async function startTaskRun(missionId: string, input: StartTaskRunInput) 
     }
 
     occurrenceId = materialized.id;
-    occurrenceResult = await pool!.query("select id, child_id from task_occurrences where id = $1", [occurrenceId]);
+    occurrenceResult = await pool!.query("select id, child_id, status from task_occurrences where id = $1", [occurrenceId]);
   }
 
-  const occurrence = occurrenceResult.rows[0] as { child_id: string; id: string } | undefined;
+  const occurrence = occurrenceResult.rows[0] as { child_id: string; id: string; status: string } | undefined;
 
   if (!occurrence) {
     return null;
+  }
+
+  if (occurrence.status === "done" || occurrence.status === "expired") {
+    return getMissionOccurrence(occurrenceId);
   }
 
   const completedRunResult = await pool!.query(
@@ -2356,11 +2369,11 @@ function mapMission(row: Record<string, unknown>) {
 }
 
 function inferExecutionType(input: { category: string; targetApp?: string; timeLimitMinutes?: number }) {
-  if (input.targetApp || input.category === "entertainment") {
+  if (input.targetApp || input.category === "entertainment" || input.category === "Movies" || input.category === "Game") {
     return "timed";
   }
 
-  if (["reading", "language", "math", "music"].includes(input.category)) {
+  if (["reading", "language", "math", "music", "chinese", "english", "Math", "Chinese", "Eng"].includes(input.category)) {
     return "submission";
   }
 
@@ -2407,7 +2420,11 @@ function toMissionStatus(status: OccurrenceStatus, progress: number, total: numb
 }
 
 function toOccurrenceStatus(status: MissionInput["status"]): OccurrenceStatus {
-  return status === "done" ? "done" : "pending";
+  if (status === "done" || status === "expired") {
+    return status;
+  }
+
+  return "pending";
 }
 
 function formatDbDate(value: unknown) {
@@ -2748,13 +2765,13 @@ function demoMissionInputs(): MissionInput[] {
   };
 
   return [
-    task(base, "➕", "新加坡数学3", "math", "完成当天数学练习", "完成新加坡数学3当天内容，订正错题。", ["完成练习", "检查答案", "订正错题"], workDailyRepeatRule, "16:00", 10, "#4B6FA8"),
-    task(base, "🀄", "中文认读和字帖", "language", "认读一篇文章，抄写字帖一篇", "每天认读一篇中文文章，并完成一篇字帖抄写。", ["朗读文章", "完成字帖", "圈出新词"], workDailyRepeatRule, "17:00", 10, "#B75F4A"),
-    task(base, "📘", "读哈利波特和读后感", "reading", "读哈利波特，写一篇读后感", "阅读哈利波特当天内容，并写一篇读后感。", ["阅读当天内容", "写读后感", "检查拼写和表达"], workDailyRepeatRule, "19:00", 10, "#3F7D58"),
-    task(base, "🎹", "弹钢琴和小叶子辅导", "music", "练琴30分钟", "周二、周四各练琴30分钟，并完成小叶子辅导。", ["热身", "练习曲目", "完成小叶子辅导"], "FREQ=WEEKLY;BYDAY=TU,TH", "18:00", 12, "#8B5E83", 15),
-    task(base, "💪", "日常体能训练", "sport", "体能训练1分钟", "完成1分钟日常体能训练。", ["核心训练", "力量训练", "拉伸"], workDailyRepeatRule, "18:45", 10, "#7A6A3A", 10, 1, "Maps"),
-    task(base, "🏊", "游泳", "sport", "游泳60分钟", "周二、周四游泳60分钟。", ["热身", "游泳60分钟", "洗澡整理"], "FREQ=WEEKLY;BYDAY=TU,TH", "10:00", 12, "#2C7DA0", 20),
-    task(base, "📺", "电视时间", "entertainment", "电视1分钟", "每天电视1分钟。", ["控制时间", "按时结束"], "FREQ=DAILY", "20:00", -5, "#6B5B95", -5, 1, "Maps")
+    task(base, "➕", "新加坡数学3", "Math", "完成当天数学练习", "完成新加坡数学3当天内容，订正错题。", ["完成练习", "检查答案", "订正错题"], workDailyRepeatRule, "16:00", 10, "#4B6FA8"),
+    task(base, "🀄", "中文认读和字帖", "Chinese", "认读一篇文章，抄写字帖一篇", "每天认读一篇中文文章，并完成一篇字帖抄写。", ["朗读文章", "完成字帖", "圈出新词"], workDailyRepeatRule, "17:00", 10, "#B75F4A"),
+    task(base, "📘", "读哈利波特和读后感", "Eng", "读哈利波特，写一篇读后感", "阅读哈利波特当天内容，并写一篇读后感。", ["阅读当天内容", "写读后感", "检查拼写和表达"], workDailyRepeatRule, "19:00", 10, "#3F7D58"),
+    task(base, "🎹", "弹钢琴和小叶子辅导", "Other", "练琴30分钟", "周二、周四各练琴30分钟，并完成小叶子辅导。", ["热身", "练习曲目", "完成小叶子辅导"], "FREQ=WEEKLY;BYDAY=TU,TH", "18:00", 12, "#8B5E83", 15),
+    task(base, "💪", "日常体能训练", "Sports", "体能训练1分钟", "完成1分钟日常体能训练。", ["核心训练", "力量训练", "拉伸"], workDailyRepeatRule, "18:45", 10, "#7A6A3A", 10, 1, "Maps"),
+    task(base, "🏊", "游泳", "Sports", "游泳60分钟", "周二、周四游泳60分钟。", ["热身", "游泳60分钟", "洗澡整理"], "FREQ=WEEKLY;BYDAY=TU,TH", "10:00", 12, "#2C7DA0", 20),
+    task(base, "📺", "电视时间", "Game", "电视1分钟", "每天电视1分钟。", ["控制时间", "按时结束"], "FREQ=DAILY", "20:00", -5, "#6B5B95", -5, 1, "Maps;Youtobe")
   ];
 }
 

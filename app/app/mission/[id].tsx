@@ -29,6 +29,8 @@ export default function MissionDetailScreen() {
   const [timerState, setTimerState] = useState<"idle" | "running" | "paused" | "ended">("idle");
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [nowMs, setNowMs] = useState(Date.now());
+  const [selectedTargetApp, setSelectedTargetApp] = useState<string | undefined>();
+  const [isTargetAppMenuOpen, setIsTargetAppMenuOpen] = useState(false);
   const timerStartedAtRef = useRef<string | undefined>(undefined);
   const notifiedRunIdsRef = useRef<Set<string>>(new Set());
   const mission = getMission(id);
@@ -37,12 +39,17 @@ export default function MissionDetailScreen() {
   const isSubmissionTask = executionType === "submission";
   const timerMinutes = useMemo(() => mission?.timeLimitMinutes ?? 10, [mission?.timeLimitMinutes]);
   const timeLimitSeconds = timerMinutes * 60;
+  const targetAppOptions = useMemo(() => targetAppOptionsForMission(mission?.targetApp), [mission?.targetApp]);
   const activeEntertainmentRun = isTimedTask && mission?.activeRun && mission.activeRun.status !== "completed" ? mission.activeRun : undefined;
+  const activeTargetApp = activeTargetAppForMission(activeEntertainmentRun?.targetApp, selectedTargetApp, targetAppOptions);
   const isEntertainmentPaused = activeEntertainmentRun?.status === "paused";
   const hasFinishedEntertainmentRun = Boolean(
     isTimedTask && mission && (
+      mission.status === "done" ||
+      mission.status === "expired" ||
+      Boolean(mission.completionRecord) ||
       mission.activeRun?.status === "completed" ||
-      mission.eventRecords.some(isAppRunFinishedEvent)
+      hasLockedTimedRun(mission.eventRecords)
     )
   );
   const entertainmentSeconds = activeEntertainmentRun
@@ -50,6 +57,8 @@ export default function MissionDetailScreen() {
     : undefined;
   const displaySeconds = activeEntertainmentRun
     ? entertainmentSeconds ?? 0
+    : hasFinishedEntertainmentRun
+      ? 0
     : remainingSeconds;
   const isEntertainmentOverdue = Boolean(activeEntertainmentRun && !isEntertainmentPaused && (entertainmentSeconds ?? 0) <= 0);
   const canPauseEntertainment = Boolean(activeEntertainmentRun && !isEntertainmentPaused);
@@ -76,12 +85,17 @@ export default function MissionDetailScreen() {
   }, [mission?.id, timeLimitSeconds]);
 
   useEffect(() => {
-    if (timerState !== "running" || remainingSeconds <= 0) {
+    setSelectedTargetApp(targetAppOptions[0]);
+    setIsTargetAppMenuOpen(false);
+  }, [mission?.id, mission?.targetApp, targetAppOptions]);
+
+  useEffect(() => {
+    if (timerState !== "running") {
       return;
     }
 
     const tick = setInterval(() => {
-      setRemainingSeconds((current) => Math.max(0, current - 1));
+      setRemainingSeconds((current) => current - 1);
     }, 1000);
 
     return () => clearInterval(tick);
@@ -111,8 +125,8 @@ export default function MissionDetailScreen() {
 
     notifiedRunIdsRef.current.add(activeEntertainmentRun.id);
     setSubmitMessage(t("timerFinished"));
-    void recordMissionTimerEvent(mission!.id, { eventType: "timer_end", remainingSeconds: 0 });
-  }, [activeEntertainmentRun, entertainmentSeconds, isEntertainmentPaused, mission, recordMissionTimerEvent, t]);
+    speakTimerFinished(t("timerFinishedVoice"));
+  }, [activeEntertainmentRun, entertainmentSeconds, isEntertainmentPaused, t]);
 
   useEffect(() => {
     if (!mission) {
@@ -124,21 +138,19 @@ export default function MissionDetailScreen() {
       hasActiveRun: Boolean(activeEntertainmentRun),
       hasFinishedEntertainmentRun,
       missionId: mission.id,
-      targetApp: mission.targetApp,
+      targetApp: activeTargetApp,
       title: mission.title
     });
-  }, [activeEntertainmentRun, executionType, hasFinishedEntertainmentRun, mission]);
+  }, [activeEntertainmentRun, activeTargetApp, executionType, hasFinishedEntertainmentRun, mission]);
 
   useEffect(() => {
     if (!mission || timerState !== "running" || remainingSeconds !== 0) {
       return;
     }
 
-    setTimerState("ended");
-    void recordMissionTimerEvent(mission.id, { eventType: "timer_end", remainingSeconds: 0 });
     speakTimerFinished(t("timerFinishedVoice"));
     setSubmitMessage(t("timerFinished"));
-  }, [mission, recordMissionTimerEvent, remainingSeconds, t, timeLimitSeconds, timerState]);
+  }, [mission, remainingSeconds, t, timerState]);
 
   async function capturePhoto() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -243,9 +255,20 @@ export default function MissionDetailScreen() {
       return;
     }
 
+    if (hasFinishedEntertainmentRun || mission.completionRecord) {
+      debugTargetApp("start ignored: timed task already ended", {
+        hasCompletionRecord: Boolean(mission.completionRecord),
+        hasFinishedEntertainmentRun,
+        missionId: mission.id,
+        status: mission.status
+      });
+      setSubmitMessage(t("timerResetRequired"));
+      return;
+    }
+
     const startAt = new Date();
     const endAt = new Date(startAt.getTime() + timerMinutes * 60 * 1000);
-    const targetApp = mission.targetApp;
+    const targetApp = activeTargetApp;
     const targetUrl = targetAppUrl(targetApp);
     debugTargetApp("start pressed", {
       endAt: endAt.toISOString(),
@@ -287,7 +310,7 @@ export default function MissionDetailScreen() {
       ? new Date(activeEntertainmentRun.completedAt)
       : new Date();
     const remainingAtStop = Math.ceil((new Date(activeEntertainmentRun.endAt).getTime() - stoppedAt.getTime()) / 1000);
-    const actualDurationMinutes = Math.max(0, Math.round((timerMinutes * 60 - remainingAtStop) / 60));
+    const actualDurationMinutes = Math.max(0, Math.ceil((timerMinutes * 60 - remainingAtStop) / 60));
     const overdueMinutes = Math.max(0, Math.ceil(-remainingAtStop / 60));
 
     await cancelTimerNotification(activeEntertainmentRun.notificationId);
@@ -333,7 +356,7 @@ export default function MissionDetailScreen() {
     const pausedAt = new Date(activeEntertainmentRun.completedAt);
     const pauseDurationMs = Math.max(0, resumedAt.getTime() - pausedAt.getTime());
     const nextEndAt = new Date(new Date(activeEntertainmentRun.endAt).getTime() + pauseDurationMs);
-    const notificationId = await scheduleTimerNotification(activeEntertainmentRun.targetApp ?? mission.targetApp ?? t("targetApp"), nextEndAt, t);
+    const notificationId = await scheduleTimerNotification(activeEntertainmentRun.targetApp ?? activeTargetApp ?? t("targetApp"), nextEndAt, t);
 
     await resumeEntertainmentRun(mission.id, activeEntertainmentRun.id, {
       endAt: nextEndAt.toISOString(),
@@ -367,7 +390,10 @@ export default function MissionDetailScreen() {
     );
   }
 
-  const percent = Math.round((mission.progress / mission.total) * 100);
+  const isVisiblyComplete = isMissionVisiblyComplete(mission, isTimedTask, hasFinishedEntertainmentRun);
+  const displayProgress = isVisiblyComplete ? mission.total : mission.progress;
+  const displayStatus = isVisiblyComplete ? "done" : mission.status;
+  const percent = Math.round((displayProgress / mission.total) * 100);
   const planLongText = [mission.planDetail.summary, mission.planDetail.notes, mission.detail].filter(Boolean).join("\n\n");
   const shouldShowMore = planLongText.length > 120;
 
@@ -375,7 +401,7 @@ export default function MissionDetailScreen() {
     <View style={shared.screen}>
       <View style={shared.pageHeader}>
         <View style={styles.heading}>
-          <Text style={shared.kicker}>{mission.category}</Text>
+          <Text style={shared.kicker}>{missionCategoryLabel(mission.category)}</Text>
           <Text style={shared.title}>
             {mission.icon} {mission.title}
           </Text>
@@ -438,7 +464,7 @@ export default function MissionDetailScreen() {
             <View>
               <View style={styles.bigNumberRow}>
                 <Text style={[styles.bigNumber, { color: mission.tone }]}>{percent}%</Text>
-                <Text style={styles.status}>{missionStatusText(mission.status, t)}</Text>
+                <Text style={styles.status}>{missionStatusText(displayStatus, t)}</Text>
               </View>
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
@@ -451,38 +477,64 @@ export default function MissionDetailScreen() {
           <ScrollView style={styles.cardScroll} contentContainerStyle={styles.secondaryCardContent}>
             {isTimedTask ? (
               <View style={styles.timerPanel}>
-              <View style={styles.timerCopy}>
-                <Text style={styles.sectionLabel}>
-                  {mission.targetApp ? `${mission.targetApp} · ` : ""}{isEntertainmentPaused ? t("paused") : isEntertainmentOverdue ? t("overdue") : t("countdown")} · {timerMinutes} min
-                </Text>
-                <Text style={[styles.timerValue, { color: mission.tone }]}>{formatDuration(displaySeconds)}</Text>
-                {activeEntertainmentRun ? <Text style={styles.timerHint}>{t("returnAfterTime")}</Text> : null}
-              </View>
-              <View style={styles.timerActions}>
+                <View style={styles.timerCopy}>
+                  <Text style={styles.sectionLabel}>
+                    {activeTargetApp ? `${activeTargetApp} · ` : ""}{isEntertainmentPaused ? t("paused") : isEntertainmentOverdue ? t("overdue") : t("countdown")} · {timerMinutes} min
+                  </Text>
+                  <Text style={[styles.timerValue, { color: mission.tone }]}>{formatDuration(displaySeconds)}</Text>
+                  {targetAppOptions.length > 1 && !activeEntertainmentRun && !hasFinishedEntertainmentRun ? (
+                    <View style={styles.targetAppPicker}>
+                      <Pressable style={styles.targetAppPickerButton} onPress={() => setIsTargetAppMenuOpen((current) => !current)}>
+                        <Text style={styles.targetAppPickerText}>{activeTargetApp ?? t("targetApp")}</Text>
+                        <Text style={styles.targetAppPickerChevron}>{isTargetAppMenuOpen ? "▲" : "▼"}</Text>
+                      </Pressable>
+                      {isTargetAppMenuOpen ? (
+                        <View style={styles.targetAppMenu}>
+                          {targetAppOptions.map((option) => (
+                            <Pressable
+                              key={option}
+                              style={[styles.targetAppMenuItem, option === activeTargetApp && styles.targetAppMenuItemActive]}
+                              onPress={() => {
+                                setSelectedTargetApp(option);
+                                setIsTargetAppMenuOpen(false);
+                              }}
+                            >
+                              <Text style={[styles.targetAppMenuText, option === activeTargetApp && styles.targetAppMenuTextActive]}>{option}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+                  {activeEntertainmentRun ? <Text style={styles.timerHint}>{t("returnAfterTime")}</Text> : null}
+                </View>
                 {activeEntertainmentRun ? (
-                  <View style={styles.timerActionColumn}>
-                    {isEntertainmentPaused ? (
-                      <Pressable style={styles.timerButton} onPress={resumeEntertainmentTimer}>
-                        <Text style={styles.timerButtonText}>{t("resume")}</Text>
+                  <View style={styles.timerActions}>
+                    <View style={styles.timerActionColumn}>
+                      {isEntertainmentPaused ? (
+                        <Pressable style={styles.timerButton} onPress={resumeEntertainmentTimer}>
+                          <Text style={styles.timerButtonText}>{t("resume")}</Text>
+                        </Pressable>
+                      ) : canPauseEntertainment ? (
+                        <Pressable style={styles.timerButton} onPress={pauseEntertainmentTimer}>
+                          <Text style={styles.timerButtonText}>{t("pause")}</Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable style={styles.timerButton} onPress={finishEntertainmentTimer}>
+                        <Text style={styles.timerButtonText}>{t("finishTimer")}</Text>
                       </Pressable>
-                    ) : canPauseEntertainment ? (
-                      <Pressable style={styles.timerButton} onPress={pauseEntertainmentTimer}>
-                        <Text style={styles.timerButtonText}>{t("pause")}</Text>
-                      </Pressable>
-                    ) : null}
-                    <Pressable style={styles.timerButton} onPress={finishEntertainmentTimer}>
-                      <Text style={styles.timerButtonText}>{t("finishTargetApp")}</Text>
-                    </Pressable>
+                    </View>
                   </View>
                 ) : hasFinishedEntertainmentRun ? (
-                  <Text style={styles.timerHint}>{t("entertainmentCompleted")}</Text>
+                  <Text style={styles.timerDoneText}>{t("timerResetRequired")}</Text>
                 ) : (
-                  <Pressable style={styles.timerButton} onPress={startEntertainmentTimer}>
-                    <Text style={styles.timerButtonText}>{`${mission.targetApp ? t("startTargetApp") : t("startTimer")} ${timerMinutes} min`}</Text>
-                  </Pressable>
+                  <View style={styles.timerActions}>
+                    <Pressable style={styles.timerButton} onPress={startEntertainmentTimer}>
+                      <Text style={styles.timerButtonText}>{`${activeTargetApp ? t("startTargetApp") : t("startTimer")} ${timerMinutes} min`}</Text>
+                    </Pressable>
+                  </View>
                 )}
               </View>
-            </View>
             ) : (
               <View style={styles.executionPanel}>
                 <Text style={styles.sectionLabel}>{isSubmissionTask ? t("submissionTask") : t("completionTask")}</Text>
@@ -490,22 +542,26 @@ export default function MissionDetailScreen() {
                 <Text style={styles.timerHint}>{isSubmissionTask ? t("submissionTaskHint") : t("completionTaskHint")}</Text>
               </View>
             )}
-            <Text style={styles.cardTitle}>{t("submitResult")}</Text>
-            <View style={styles.actionGrid}>
-              <Pressable style={styles.actionButton} onPress={() => submitCompletion(mission.id)}>
-                <Text style={styles.actionIcon}>✅</Text>
-                <Text style={styles.actionText}>{t("complete")}</Text>
-              </Pressable>
-              <Pressable style={[styles.actionButton, photoUri && styles.actionButtonActive]} onPress={capturePhoto}>
-                <Text style={styles.actionIcon}>📷</Text>
-                <Text style={styles.actionText}>{t("photo")}</Text>
-              </Pressable>
-              <Pressable style={[styles.actionButton, audioUri && styles.actionButtonActive]} onPress={toggleRecording}>
-                <Text style={styles.actionIcon}>🎤</Text>
-                <Text style={styles.actionText}>{t("audio")}</Text>
-              </Pressable>
-            </View>
-            {(photoUri || audioUri || submitMessage) ? (
+            {!isTimedTask ? (
+              <>
+                <Text style={styles.cardTitle}>{t("submitResult")}</Text>
+                <View style={styles.actionGrid}>
+                  <Pressable style={styles.actionButton} onPress={() => submitCompletion(mission.id)}>
+                    <Text style={styles.actionIcon}>✅</Text>
+                    <Text style={styles.actionText}>{t("complete")}</Text>
+                  </Pressable>
+                  <Pressable style={[styles.actionButton, photoUri && styles.actionButtonActive]} onPress={capturePhoto}>
+                    <Text style={styles.actionIcon}>📷</Text>
+                    <Text style={styles.actionText}>{t("photo")}</Text>
+                  </Pressable>
+                  <Pressable style={[styles.actionButton, audioUri && styles.actionButtonActive]} onPress={toggleRecording}>
+                    <Text style={styles.actionIcon}>🎤</Text>
+                    <Text style={styles.actionText}>{t("audio")}</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+            {(!isTimedTask && (photoUri || audioUri || submitMessage)) ? (
               <View style={styles.proofPanel}>
                 {photoUri ? <Image source={{ uri: photoUri }} style={styles.photoPreview} /> : null}
                 <View style={styles.proofCopy}>
@@ -592,6 +648,39 @@ function missionStatusText(status: Mission["status"], t: (key: string) => string
   return status === "done" ? t("done") : status === "in_progress" ? t("inProgress") : t("todo");
 }
 
+function isMissionVisiblyComplete(mission: Mission, isTimedTask: boolean, hasFinishedTimedRun: boolean) {
+  return Boolean(
+    mission.status === "done" ||
+    mission.completionRecord ||
+    (isTimedTask && hasFinishedTimedRun)
+  );
+}
+
+function missionCategoryLabel(category: Mission["category"]) {
+  switch (category) {
+    case "Math":
+    case "math":
+      return "数学 Math";
+    case "Chinese":
+    case "chinese":
+    case "language":
+      return "中文 Chinese";
+    case "Eng":
+    case "english":
+    case "reading":
+      return "英文 Eng";
+    case "Sports":
+    case "sport":
+      return "运动 Sports";
+    case "Game":
+    case "Movies":
+    case "entertainment":
+      return "娱乐 Game";
+    default:
+      return "其他 Other";
+  }
+}
+
 function formatPoints(points: number) {
   return points > 0 ? `+${points}` : `${points}`;
 }
@@ -673,8 +762,30 @@ function taskEventText(eventType: Mission["eventRecords"][number]["eventType"], 
   }
 }
 
+function hasLockedTimedRun(events: Mission["eventRecords"]) {
+  return eventsSinceLastTimedReset(events).some(
+    (event) => event.eventType === "timer_end" || isAppRunFinishedEvent(event)
+  );
+}
+
+function eventsSinceLastTimedReset(events: Mission["eventRecords"]) {
+  const lastResetIndex = events.findLastIndex((event) => event.metadata?.reset === "timed_task" || event.title === "Timed task reset");
+  return lastResetIndex === -1 ? events : events.slice(lastResetIndex + 1);
+}
+
 function isAppRunFinishedEvent(event: Mission["eventRecords"][number]) {
   return event.title === "App run finished" || event.title === "Entertainment finished";
+}
+
+function targetAppOptionsForMission(targetApp?: string) {
+  return (targetApp ?? "")
+    .split(";")
+    .map((option) => option.trim())
+    .filter(Boolean);
+}
+
+function activeTargetAppForMission(activeRunTargetApp: string | undefined, selectedTargetApp: string | undefined, targetAppOptions: string[]) {
+  return activeRunTargetApp ?? selectedTargetApp ?? targetAppOptions[0];
 }
 
 function speakTimerFinished(message: string) {
@@ -910,7 +1021,7 @@ async function openTargetApp(targetApp?: string) {
 function fallbackTargetAppUrl(targetApp?: string) {
   const normalized = targetApp?.trim().toLowerCase();
 
-  if (normalized?.includes("youtube")) {
+  if (normalized?.includes("youtube") || normalized?.includes("youtobe")) {
     return "https://www.youtube.com/";
   }
 
@@ -932,7 +1043,7 @@ function targetAppUrl(targetApp?: string) {
     return undefined;
   }
 
-  if (normalized.includes("youtube")) {
+  if (normalized.includes("youtube") || normalized.includes("youtobe")) {
     return "youtube://";
   }
 
@@ -1075,7 +1186,8 @@ const styles = StyleSheet.create({
     fontSize: 42,
     lineHeight: 48,
     fontWeight: "900",
-    marginTop: 4
+    marginTop: 4,
+    minWidth: 150
   },
   timerActions: {
     flexShrink: 0,
@@ -1101,6 +1213,66 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     marginTop: 4
+  },
+  timerDoneText: {
+    color: palette.muted,
+    flexShrink: 0,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  targetAppPicker: {
+    marginTop: 10,
+    maxWidth: 220,
+    position: "relative"
+  },
+  targetAppPickerButton: {
+    alignItems: "center",
+    backgroundColor: "#F7F4ED",
+    borderColor: palette.line,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+    minHeight: 42,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  targetAppPickerText: {
+    color: palette.ink,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  targetAppPickerChevron: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  targetAppMenu: {
+    backgroundColor: "#FFFFFF",
+    borderColor: palette.line,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 6,
+    overflow: "hidden"
+  },
+  targetAppMenuItem: {
+    minHeight: 40,
+    justifyContent: "center",
+    paddingHorizontal: 12
+  },
+  targetAppMenuItemActive: {
+    backgroundColor: "#EEF3EA"
+  },
+  targetAppMenuText: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  targetAppMenuTextActive: {
+    color: palette.green,
+    fontWeight: "900"
   },
   planPanel: {
     borderRadius: 8,

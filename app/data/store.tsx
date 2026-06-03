@@ -517,6 +517,17 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
                   ...mission,
                   actualStartAt: payload.eventType === "timer_start" ? mission.actualStartAt ?? recordedAt : mission.actualStartAt,
                   actualEndAt: payload.eventType === "timer_end" ? recordedAt : mission.actualEndAt,
+                  activeRun:
+                    payload.eventType === "timer_end" && mission.activeRun
+                      ? {
+                          ...mission.activeRun,
+                          actualDurationMinutes: mission.activeRun.actualDurationMinutes ?? mission.activeRun.plannedDurationMinutes,
+                          completedAt: recordedAt,
+                          overdue: mission.activeRun.overdue ?? false,
+                          overdueMinutes: mission.activeRun.overdueMinutes ?? 0,
+                          status: "completed"
+                        }
+                      : mission.activeRun,
                   eventRecords: [
                     ...mission.eventRecords,
                     {
@@ -527,7 +538,10 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
                       recordedAt,
                       title: timerEventTitle(payload.eventType)
                     }
-                  ]
+                  ],
+                  occurrenceStatus:
+                    payload.eventType === "timer_end" && mission.occurrenceStatus !== "done" ? "expired" : mission.occurrenceStatus,
+                  status: payload.eventType === "timer_end" && mission.status !== "done" ? "expired" : mission.status
                 }
               : mission
           )
@@ -545,8 +559,10 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
         setMissionItems((current) =>
           current.map((mission) =>
             mission.id === missionId &&
+            mission.status !== "done" &&
+            mission.status !== "expired" &&
             mission.activeRun?.status !== "completed" &&
-            !mission.eventRecords.some(isAppRunFinishedEvent)
+            !hasLockedTimedRun(mission.eventRecords)
               ? {
                   ...mission,
                   activeRun: {
@@ -588,13 +604,23 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
                       }
                     : undefined,
                   actualEndAt: payload.completedAt,
+                  completionRecord: {
+                    actualMinutes: payload.actualDurationMinutes,
+                    completedAt: payload.completedAt,
+                    endedAt: payload.completedAt,
+                    parentConfirmed: true,
+                    startedAt: mission.actualStartAt ?? mission.activeRun?.startAt
+                  },
                   eventRecords: [
                     ...mission.eventRecords,
                     taskEvent(missionId, "completion", "App run finished", `Target app finished in ${payload.actualDurationMinutes} minutes.`, {
                       overdue: payload.overdue,
                       overdueMinutes: payload.overdueMinutes
                     })
-                  ]
+                  ],
+                  occurrenceStatus: "done",
+                  progress: mission.total,
+                  status: "done"
                 }
               : mission
           )
@@ -782,15 +808,26 @@ function timerEventContent(eventType: MissionTimerEventPayload["eventType"], rem
 }
 
 function inferDraftExecutionType(draft: Pick<MissionDraft, "category" | "targetApp" | "timeLimitMinutes">): MissionExecutionType {
-  if (draft.targetApp || draft.category === "entertainment") {
+  if (draft.targetApp || draft.category === "entertainment" || draft.category === "Movies" || draft.category === "Game") {
     return "timed";
   }
 
-  if (["reading", "language", "math", "music"].includes(draft.category)) {
+  if (["reading", "language", "math", "music", "chinese", "english", "Math", "Chinese", "Eng"].includes(draft.category)) {
     return "submission";
   }
 
   return "completion";
+}
+
+function hasLockedTimedRun(events: Mission["eventRecords"]) {
+  return eventsSinceLastTimedReset(events).some(
+    (event) => event.eventType === "timer_end" || isAppRunFinishedEvent(event)
+  );
+}
+
+function eventsSinceLastTimedReset(events: Mission["eventRecords"]) {
+  const lastResetIndex = events.findLastIndex((event) => event.metadata?.reset === "timed_task" || event.title === "Timed task reset");
+  return lastResetIndex === -1 ? events : events.slice(lastResetIndex + 1);
 }
 
 function isAppRunFinishedEvent(event: Mission["eventRecords"][number]) {

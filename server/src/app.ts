@@ -861,7 +861,7 @@ app.post("/families/demo/missions/:id/reset-timer", async (c) => {
   mission.status = "todo";
   mission.rewardRecords = [];
   mission.eventRecords = [
-    ...(mission.eventRecords ?? []).filter((event) => !["timer_start", "timer_pause", "timer_resume", "timer_end", "completion"].includes(event.eventType)),
+    ...(mission.eventRecords ?? []),
     demoEvent(missionId, "status_change", "Timed task reset", `Timed task "${mission.title}" was reset by parent.`, {
       reset: "timed_task"
     })
@@ -907,7 +907,7 @@ app.post("/families/demo/missions/:id/complete", async (c) => {
         {
           id: `reward-${missionId}-${Date.now()}`,
           points: fallbackRewardPoints(mission, false),
-          reason: mission.category === "entertainment" ? "Entertainment time used" : `Completed ${mission.title}`,
+          reason: isEntertainmentCategory(mission.category) ? "Entertainment time used" : `Completed ${mission.title}`,
           source: "completion"
         }
       ];
@@ -944,6 +944,7 @@ app.post("/families/demo/missions/:id/timer-events", async (c) => {
 
   const mission = todayMissions.find((item) => item.id === missionId) as
     | (MissionInput & {
+        activeRun?: DemoMission["activeRun"];
         actualEndAt?: string;
         actualStartAt?: string;
         eventRecords?: Array<{ content: string; eventType: string; id: string; metadata?: Record<string, unknown>; recordedAt: string; title: string }>;
@@ -957,6 +958,19 @@ app.post("/families/demo/missions/:id/timer-events", async (c) => {
   const recordedAt = new Date().toISOString();
   mission.actualStartAt = payload.eventType === "timer_start" ? mission.actualStartAt ?? recordedAt : mission.actualStartAt;
   mission.actualEndAt = payload.eventType === "timer_end" ? recordedAt : mission.actualEndAt;
+  if (payload.eventType === "timer_end") {
+    mission.status = mission.status === "done" ? mission.status : "expired";
+    if (mission.activeRun && mission.activeRun.status !== "completed") {
+      mission.activeRun = {
+        ...mission.activeRun,
+        actualDurationMinutes: mission.activeRun.actualDurationMinutes ?? mission.activeRun.plannedDurationMinutes,
+        completedAt: recordedAt,
+        overdue: mission.activeRun.overdue ?? false,
+        overdueMinutes: mission.activeRun.overdueMinutes ?? 0,
+        status: "completed"
+      };
+    }
+  }
   mission.eventRecords = [
     ...(mission.eventRecords ?? []),
     {
@@ -992,7 +1006,7 @@ app.post("/families/demo/missions/:id/runs", async (c) => {
     return c.json({ error: "Mission not found" }, 404);
   }
 
-  if (mission.activeRun?.status === "completed" || mission.eventRecords?.some(isAppRunFinishedEvent)) {
+  if (mission.status === "done" || mission.status === "expired" || mission.activeRun?.status === "completed" || hasLockedTimedRun(mission.eventRecords)) {
     return c.json({ mission });
   }
 
@@ -1128,7 +1142,7 @@ app.post("/families/demo/missions/:id/runs/:runId/finish", async (c) => {
         {
           id: `reward-${missionId}-${Date.now()}`,
           points: fallbackRewardPoints(mission, payload.overdue),
-          reason: payload.overdue ? "Timed task overdue penalty" : mission.category === "entertainment" ? "Entertainment time used" : `Completed ${mission.title}`,
+          reason: payload.overdue ? "Timed task overdue penalty" : isEntertainmentCategory(mission.category) ? "Entertainment time used" : `Completed ${mission.title}`,
           source: "completion"
         }
       ];
@@ -1146,13 +1160,17 @@ app.post("/families/demo/missions/:id/runs/:runId/finish", async (c) => {
 });
 
 function fallbackRewardPoints(mission: MissionInput, isOverdue: boolean) {
-  const basePoints = mission.category === "entertainment" ? -Math.abs(mission.energy) : mission.energy;
+  const basePoints = isEntertainmentCategory(mission.category) ? -Math.abs(mission.energy) : mission.energy;
 
   if (mission.timeLimitMinutes && isOverdue) {
     return -Math.abs(basePoints) * 2;
   }
 
   return basePoints;
+}
+
+function isEntertainmentCategory(category: string) {
+  return category === "entertainment" || category === "Movies" || category === "Game";
 }
 
 app.post("/families/demo/missions/:id/attachments", async (c) => {
@@ -1232,6 +1250,27 @@ function demoEvent(
     recordedAt: new Date().toISOString(),
     title
   };
+}
+
+function hasLockedTimedRun(events: DemoMission["eventRecords"] = []) {
+  return eventsSinceLastTimedReset(events).some(
+    (event) => event.eventType === "timer_end" || isAppRunFinishedEvent(event)
+  );
+}
+
+function eventsSinceLastTimedReset(events: DemoMission["eventRecords"] = []) {
+  let lastResetIndex = -1;
+
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+
+    if (event.metadata?.reset === "timed_task" || event.title === "Timed task reset") {
+      lastResetIndex = index;
+      break;
+    }
+  }
+
+  return lastResetIndex === -1 ? events : events.slice(lastResetIndex + 1);
 }
 
 function isAppRunFinishedEvent(event: { title: string }) {
