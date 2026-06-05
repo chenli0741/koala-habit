@@ -104,6 +104,7 @@ export type Mission = {
   executionType: MissionExecutionType;
   timeLimitMinutes?: number;
   targetApp?: string;
+  source?: string;
   actualStartAt?: string;
   actualEndAt?: string;
   energy: number;

@@ -4,6 +4,7 @@ import {
   addMissionAttachmentApi,
   completeMissionApi,
   createChildApi,
+  createFamilyApi,
   createMissionApi,
   deleteMissionApi,
   fetchFamily,
@@ -31,9 +32,17 @@ import { childProfile, Mission, MissionCategory, MissionExecutionType, TaskAttac
 import { Language, translate } from "./i18n";
 
 export type ParentAccount = {
+  id?: string;
   name: string;
   email: string;
   provider: string;
+};
+
+export type FamilyAccount = {
+  id: string;
+  language: string;
+  name: string;
+  timeZone: string;
 };
 
 export type ChildAccount = {
@@ -65,6 +74,7 @@ type KoalaStore = {
   isSessionReady: boolean;
   language: Language;
   parent: ParentAccount | null;
+  family: FamilyAccount | null;
   children: ChildAccount[];
   activeChild: ChildAccount | null;
   missions: Mission[];
@@ -72,11 +82,12 @@ type KoalaStore = {
   completedCount: number;
   loginParent: (email: string, password: string) => Promise<boolean>;
   registerParent: (name: string, email: string, password: string) => Promise<void>;
+  createFamily: (name: string, timeZone: string, language: string) => Promise<void>;
   signInGoogleParent: (name: string, email: string, idToken?: string) => Promise<void>;
   signInParent: (name: string, email: string) => Promise<void>;
   createChild: (child: Omit<ChildAccount, "id">) => Promise<ChildAccount>;
   loginChild: (childId: string, pin: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   addMission: (draft: MissionDraft) => Promise<void>;
   addMissionAttachment: (missionId: string, attachment: TaskAttachment) => Promise<void>;
   updateMission: (missionId: string, draft: MissionDraft) => Promise<void>;
@@ -97,7 +108,9 @@ const parentSessionKey = "koala.parent.session";
 
 type StoredParentSession = {
   children: ChildAccount[];
+  family: FamilyAccount | null;
   parent: ParentAccount;
+  token?: string;
 };
 
 function slugify(value: string) {
@@ -126,6 +139,8 @@ function uniqueMissionId(title: string, existing: Mission[]) {
 export function KoalaStoreProvider({ children }: PropsWithChildren) {
   const [isSessionReady, setIsSessionReady] = useState(false);
   const [parent, setParent] = useState<ParentAccount | null>(null);
+  const [family, setFamily] = useState<FamilyAccount | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [childAccounts, setChildAccounts] = useState<ChildAccount[]>([]);
   const [activeChildId, setActiveChildId] = useState<string | null>(null);
   const [missionItems, setMissionItems] = useState<Mission[]>([]);
@@ -151,11 +166,14 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           return;
         }
 
+        const storedFamily = storedSession.family ?? pendingFamilyForParent(storedSession.parent);
         setParent(storedSession.parent);
+        setFamily(storedFamily);
+        setSessionToken(storedSession.token ?? null);
         setChildAccounts(storedSession.children);
         setActiveChildId(null);
 
-        const family = await fetchFamily();
+        const family = await fetchFamily(storedFamily.id);
 
         if (!isMounted) {
           return;
@@ -165,9 +183,13 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setParent(family.parent);
         }
 
+        setFamily(familySummary(family));
+
         if (family.children.length > 0) {
           setChildAccounts((current) => mergeChildren(family.children, current));
           await saveParentSession({
+            token: storedSession.token,
+            family: familySummary(family),
             parent: family.parent ?? storedSession.parent,
             children: mergeChildren(family.children, storedSession.children)
           });
@@ -192,6 +214,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
     () => ({
       isSessionReady,
       parent,
+      family,
       language,
       children: childAccounts,
       activeChild,
@@ -207,10 +230,12 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           }
 
           setParent(family.parent);
+          setFamily(familySummary(family));
+          setSessionToken(family.token);
           setChildAccounts((current) => mergeChildren(family.children, current));
           setActiveChildId(null);
           setMissionItems([]);
-          await saveParentSession({ parent: family.parent, children: family.children });
+          await saveParentSession({ token: family.token, family: familySummary(family), parent: family.parent, children: family.children });
           return true;
         } catch {
           return false;
@@ -223,19 +248,46 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           const family = await registerParentApi(nextParent.name, nextParent.email, password);
           const storedParent = family.parent ?? nextParent;
           setParent(storedParent);
+          setFamily(familySummary(family));
+          setSessionToken(family.token);
           setActiveChildId(null);
           setMissionItems([]);
+          setChildAccounts(family.children);
 
-          if (family.children.length > 0) {
-            setChildAccounts((current) => mergeChildren(family.children, current));
-          }
-
-          await saveParentSession({ parent: storedParent, children: family.children });
+          await saveParentSession({ token: family.token, family: familySummary(family), parent: storedParent, children: family.children });
         } catch {
+          const nextFamily = pendingFamilyForParent(nextParent);
           setParent(nextParent);
+          setFamily(nextFamily);
+          setSessionToken("local-parent-password-session");
+          setChildAccounts([]);
           setActiveChildId(null);
           setMissionItems([]);
-          await saveParentSession({ parent: nextParent, children: childAccounts });
+          await saveParentSession({ token: "local-parent-password-session", family: nextFamily, parent: nextParent, children: [] });
+        }
+      },
+      createFamily: async (name, timeZone, familyLanguage) => {
+        if (!parent) {
+          throw new Error("Parent session is required before creating a family.");
+        }
+
+        const currentFamily = family ?? pendingFamilyForParent(parent);
+        const nextFamily = {
+          id: currentFamily.id,
+          language: familyLanguage,
+          name: name.trim(),
+          timeZone
+        };
+
+        setFamily(nextFamily);
+
+        try {
+          const storedFamily = await createFamilyApi(nextFamily.id, nextFamily.name, nextFamily.timeZone, nextFamily.language);
+          const savedFamily = familySummary(storedFamily);
+          setFamily(savedFamily);
+          await saveParentSession({ token: sessionToken ?? undefined, family: savedFamily, parent, children: childAccounts });
+        } catch {
+          await saveParentSession({ token: sessionToken ?? undefined, family: nextFamily, parent, children: childAccounts });
         }
       },
       signInGoogleParent: async (name, email, idToken) => {
@@ -246,6 +298,8 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           const family = await signInGoogleParentApi(nextParent.name, nextParent.email, idToken);
           const storedParent = family.parent ?? nextParent;
           setParent(storedParent);
+          setFamily(familySummary(family));
+          setSessionToken(family.token);
           setActiveChildId(null);
           setMissionItems([]);
 
@@ -253,12 +307,15 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
             setChildAccounts((current) => mergeChildren(family.children, current));
           }
 
-          await saveParentSession({ parent: storedParent, children: family.children });
+          await saveParentSession({ token: family.token, family: familySummary(family), parent: storedParent, children: family.children });
         } catch {
+          const nextFamily = pendingFamilyForParent(nextParent);
           setParent(nextParent);
+          setFamily(nextFamily);
+          setSessionToken("local-google-parent-session");
           setActiveChildId(null);
           setMissionItems([]);
-          await saveParentSession({ parent: nextParent, children: childAccounts });
+          await saveParentSession({ token: "local-google-parent-session", family: nextFamily, parent: nextParent, children: childAccounts });
         }
       },
       signInParent: async (name, email) => {
@@ -269,6 +326,8 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           const family = await signInParentApi(nextParent.name, nextParent.email);
           const storedParent = family.parent ?? nextParent;
           setParent(storedParent);
+          setFamily(familySummary(family));
+          setSessionToken(family.token);
           setActiveChildId(null);
           setMissionItems([]);
 
@@ -276,12 +335,15 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
             setChildAccounts((current) => mergeChildren(family.children, current));
           }
 
-          await saveParentSession({ parent: storedParent, children: family.children });
+          await saveParentSession({ token: family.token, family: familySummary(family), parent: storedParent, children: family.children });
         } catch {
+          const nextFamily = pendingFamilyForParent(nextParent);
           setParent(nextParent);
+          setFamily(nextFamily);
+          setSessionToken("local-apple-parent-session");
           setActiveChildId(null);
           setMissionItems([]);
-          await saveParentSession({ parent: nextParent, children: childAccounts });
+          await saveParentSession({ token: "local-apple-parent-session", family: nextFamily, parent: nextParent, children: childAccounts });
         }
       },
       createChild: async (child) => {
@@ -289,20 +351,22 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
         setChildAccounts((current) => [...current, newChild]);
 
         try {
-          const storedChild = await createChildApi(child);
+          const storedChild = await createChildApi(family?.id ?? "demo", child);
           const nextChildren = replaceOptimisticChild([...childAccounts, newChild], newChild.id, storedChild);
           setChildAccounts(nextChildren);
+          setActiveChildId(storedChild.id);
 
           if (parent) {
-            await saveParentSession({ parent, children: nextChildren });
+            await saveParentSession({ token: sessionToken ?? undefined, family, parent, children: nextChildren });
           }
 
           return storedChild;
         } catch {
           if (parent) {
-            await saveParentSession({ parent, children: [...childAccounts, newChild] });
+            await saveParentSession({ token: sessionToken ?? undefined, family, parent, children: [...childAccounts, newChild] });
           }
 
+          setActiveChildId(newChild.id);
           return newChild;
         }
       },
@@ -333,8 +397,13 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
         return isValid;
       },
       logout: () => {
+        setParent(null);
+        setFamily(null);
+        setSessionToken(null);
+        setChildAccounts([]);
         setActiveChildId(null);
         setMissionItems([]);
+        return deleteSessionValue();
       },
       addMission: async (draft) => {
         const missionId = uniqueMissionId(draft.title, missionItems);
@@ -531,17 +600,17 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
                   eventRecords: [
                     ...mission.eventRecords,
                     {
-                      content: timerEventContent(payload.eventType, payload.remainingSeconds),
+                      content: timerEventContent(payload.eventType, payload),
                       id: `timer-${mission.id}-${payload.eventType}-${Date.now()}`,
                       eventType: payload.eventType,
-                      metadata: { remainingSeconds: payload.remainingSeconds },
+                      metadata: { elapsedSeconds: payload.elapsedSeconds, remainingSeconds: payload.remainingSeconds },
                       recordedAt,
                       title: timerEventTitle(payload.eventType)
                     }
                   ],
                   occurrenceStatus:
-                    payload.eventType === "timer_end" && mission.occurrenceStatus !== "done" ? "expired" : mission.occurrenceStatus,
-                  status: payload.eventType === "timer_end" && mission.status !== "done" ? "expired" : mission.status
+                    payload.eventType === "timer_end" && isLimitedTimerMission(mission) && mission.occurrenceStatus !== "done" ? "expired" : mission.occurrenceStatus,
+                  status: payload.eventType === "timer_end" && isLimitedTimerMission(mission) && mission.status !== "done" ? "expired" : mission.status
                 }
               : mission
           )
@@ -704,14 +773,14 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
       setLanguage,
       t: (key) => translate(language, key)
     }),
-    [activeChild, childAccounts, completedCount, isSessionReady, language, missionItems, parent, todayEnergy]
+    [activeChild, childAccounts, completedCount, family, isSessionReady, language, missionItems, parent, sessionToken, todayEnergy]
   );
 
   return <KoalaContext.Provider value={value}>{children}</KoalaContext.Provider>;
 }
 
 async function readParentSession() {
-  const value = await SecureStore.getItemAsync(parentSessionKey);
+  const value = await readSessionValue();
 
   if (!value) {
     return null;
@@ -720,13 +789,37 @@ async function readParentSession() {
   try {
     return JSON.parse(value) as StoredParentSession;
   } catch {
-    await SecureStore.deleteItemAsync(parentSessionKey);
+    await deleteSessionValue();
     return null;
   }
 }
 
 async function saveParentSession(session: StoredParentSession) {
-  await SecureStore.setItemAsync(parentSessionKey, JSON.stringify(session));
+  await writeSessionValue(JSON.stringify(session));
+}
+
+async function readSessionValue() {
+  try {
+    return await SecureStore.getItemAsync(parentSessionKey);
+  } catch {
+    return globalThis.localStorage?.getItem(parentSessionKey) ?? null;
+  }
+}
+
+async function writeSessionValue(value: string) {
+  try {
+    await SecureStore.setItemAsync(parentSessionKey, value);
+  } catch {
+    globalThis.localStorage?.setItem(parentSessionKey, value);
+  }
+}
+
+async function deleteSessionValue() {
+  try {
+    await SecureStore.deleteItemAsync(parentSessionKey);
+  } catch {
+    globalThis.localStorage?.removeItem(parentSessionKey);
+  }
 }
 
 function mergeChildren(incoming: ChildAccount[], current: ChildAccount[]) {
@@ -763,6 +856,24 @@ function uniqueChildId(name: string, existing: ChildAccount[]) {
   }
 
   return nextId;
+}
+
+function familySummary(family: FamilyAccount & { children?: ChildAccount[]; parent?: ParentAccount | null; token?: string }): FamilyAccount {
+  return {
+    id: family.id,
+    language: family.language,
+    name: family.name,
+    timeZone: family.timeZone
+  };
+}
+
+function pendingFamilyForParent(parent: ParentAccount): FamilyAccount {
+  return {
+    id: `family-${slugify(parent.email)}`,
+    language: "English",
+    name: `${parent.name}'s Family`,
+    timeZone: "America/Los_Angeles"
+  };
 }
 
 function normalizeMissionProgress(mission: Mission): Mission {
@@ -802,9 +913,14 @@ function timerEventTitle(eventType: MissionTimerEventPayload["eventType"]) {
   }
 }
 
-function timerEventContent(eventType: MissionTimerEventPayload["eventType"], remainingSeconds?: number) {
-  const remainingText = remainingSeconds === undefined ? "" : ` Remaining ${remainingSeconds} seconds.`;
-  return `${timerEventTitle(eventType)}.${remainingText}`;
+function timerEventContent(eventType: MissionTimerEventPayload["eventType"], payload: Pick<MissionTimerEventPayload, "elapsedSeconds" | "remainingSeconds">) {
+  const elapsedText = payload.elapsedSeconds === undefined ? "" : ` Elapsed ${payload.elapsedSeconds} seconds.`;
+  const remainingText = payload.remainingSeconds === undefined ? "" : ` Remaining ${payload.remainingSeconds} seconds.`;
+  return `${timerEventTitle(eventType)}.${elapsedText}${remainingText}`;
+}
+
+function isLimitedTimerMission(mission: Pick<Mission, "executionType" | "targetApp" | "timeLimitMinutes">) {
+  return mission.executionType === "timed" || Boolean(mission.timeLimitMinutes || mission.targetApp);
 }
 
 function inferDraftExecutionType(draft: Pick<MissionDraft, "category" | "targetApp" | "timeLimitMinutes">): MissionExecutionType {

@@ -1,11 +1,11 @@
-import { Link } from "expo-router";
+import { Link, router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Mission } from "../data/demo";
 import { profileForChild, useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
 
 export default function ParentScreen() {
-  const { activeChild, completeMission, completedCount, missions, t } = useKoalaStore();
+  const { activeChild, completeMission, completedCount, logout, missions, t } = useKoalaStore();
   const profile = profileForChild(activeChild);
   const pendingMissions = missions.filter((mission) => mission.status !== "done");
   const completedMissions = missions.filter((mission) => mission.status === "done");
@@ -19,9 +19,19 @@ export default function ParentScreen() {
           <Text style={shared.title}>{profile.name}</Text>
           <Text style={shared.subtitle}>{t("useIpadQuickReview")}</Text>
         </View>
-        <Link href="/" style={shared.navButton}>
-          <Text style={shared.navButtonText}>{t("backToday")}</Text>
-        </Link>
+        <View style={styles.headerActions}>
+          <Pressable
+            style={shared.navButtonAlt}
+            onPress={() => {
+              void logout().then(() => router.replace("/auth"));
+            }}
+          >
+            <Text style={shared.navButtonAltText}>{t("logout")}</Text>
+          </Pressable>
+          <Link href="/" style={shared.navButton}>
+            <Text style={shared.navButtonText}>{t("backToday")}</Text>
+          </Link>
+        </View>
       </View>
 
       <View style={styles.grid}>
@@ -65,6 +75,11 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     gap: 22
+  },
+  headerActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10
   },
   summaryCard: {
     flex: 0.9,

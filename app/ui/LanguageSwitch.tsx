@@ -25,7 +25,9 @@ export function LanguageSwitch() {
 
 const styles = StyleSheet.create({
   switcher: {
+    height: 30,
     flexDirection: "row",
+    alignItems: "center",
     gap: 2,
     alignSelf: "flex-end",
     borderRadius: 6,
@@ -33,8 +35,9 @@ const styles = StyleSheet.create({
     padding: 2
   },
   button: {
-    minHeight: 26,
+    height: 26,
     borderRadius: 5,
+    alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 7
   },
@@ -44,6 +47,7 @@ const styles = StyleSheet.create({
   text: {
     color: palette.muted,
     fontSize: 10,
+    lineHeight: 22,
     fontWeight: "900"
   },
   textActive: {

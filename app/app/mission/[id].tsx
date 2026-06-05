@@ -5,12 +5,13 @@ import {
   useAudioRecorder,
   useAudioRecorderState
 } from "expo-audio";
+import { File, Paths } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
 import { Link, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { encouragements, Mission } from "../../data/demo";
+import { Alert, Image, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { encouragements, Mission, TaskAttachment } from "../../data/demo";
 import { useKoalaStore } from "../../data/store";
 import { palette, shared } from "../../ui/styles";
 
@@ -26,7 +27,6 @@ export default function MissionDetailScreen() {
   const [audioUri, setAudioUri] = useState<string | undefined>();
   const [isPlanExpanded, setIsPlanExpanded] = useState(false);
   const [submitMessage, setSubmitMessage] = useState("");
-  const [timerState, setTimerState] = useState<"idle" | "running" | "paused" | "ended">("idle");
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [nowMs, setNowMs] = useState(Date.now());
   const [selectedTargetApp, setSelectedTargetApp] = useState<string | undefined>();
@@ -37,6 +37,8 @@ export default function MissionDetailScreen() {
   const executionType = mission?.executionType ?? "completion";
   const isTimedTask = executionType === "timed";
   const isSubmissionTask = executionType === "submission";
+  const regularTimerState = mission && !isTimedTask ? regularTimerStateForMission(mission) : "idle";
+  const regularElapsedSeconds = mission && !isTimedTask ? elapsedSecondsForRegularTimer(mission, nowMs) : 0;
   const timerMinutes = useMemo(() => mission?.timeLimitMinutes ?? 10, [mission?.timeLimitMinutes]);
   const timeLimitSeconds = timerMinutes * 60;
   const targetAppOptions = useMemo(() => targetAppOptionsForMission(mission?.targetApp), [mission?.targetApp]);
@@ -80,7 +82,6 @@ export default function MissionDetailScreen() {
 
   useEffect(() => {
     setRemainingSeconds(timeLimitSeconds);
-    setTimerState("idle");
     timerStartedAtRef.current = mission?.actualStartAt;
   }, [mission?.id, timeLimitSeconds]);
 
@@ -90,16 +91,16 @@ export default function MissionDetailScreen() {
   }, [mission?.id, mission?.targetApp, targetAppOptions]);
 
   useEffect(() => {
-    if (timerState !== "running") {
+    if (!activeEntertainmentRun && regularTimerState !== "running") {
       return;
     }
 
     const tick = setInterval(() => {
-      setRemainingSeconds((current) => current - 1);
+      setNowMs(Date.now());
     }, 1000);
 
     return () => clearInterval(tick);
-  }, [remainingSeconds, timerState]);
+  }, [activeEntertainmentRun, regularTimerState]);
 
   useEffect(() => {
     if (!activeEntertainmentRun) {
@@ -142,15 +143,6 @@ export default function MissionDetailScreen() {
       title: mission.title
     });
   }, [activeEntertainmentRun, activeTargetApp, executionType, hasFinishedEntertainmentRun, mission]);
-
-  useEffect(() => {
-    if (!mission || timerState !== "running" || remainingSeconds !== 0) {
-      return;
-    }
-
-    speakTimerFinished(t("timerFinishedVoice"));
-    setSubmitMessage(t("timerFinished"));
-  }, [mission, remainingSeconds, t, timerState]);
 
   async function capturePhoto() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -200,7 +192,15 @@ export default function MissionDetailScreen() {
   async function submitCompletion(missionId: string) {
     const endedAt = new Date().toISOString();
     const startedAt = timerStartedAtRef.current ?? mission?.actualStartAt;
-    const actualMinutes = startedAt ? Math.max(1, Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 60000)) : undefined;
+    const actualMinutes = regularElapsedSeconds > 0
+      ? Math.max(1, Math.ceil(regularElapsedSeconds / 60))
+      : startedAt
+        ? Math.max(1, Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 60000))
+        : undefined;
+
+    if (mission && !isTimedTask && (regularTimerState === "running" || regularTimerState === "paused")) {
+      await recordMissionTimerEvent(mission.id, { elapsedSeconds: regularElapsedSeconds, eventType: "timer_end" });
+    }
 
     await completeMission(missionId, {
       actualMinutes,
@@ -218,6 +218,10 @@ export default function MissionDetailScreen() {
       return;
     }
 
+    if (mission.status === "done" || regularTimerState === "running" || regularTimerState === "ended") {
+      return;
+    }
+
     debugTargetApp("regular timer started", {
       missionId: mission.id,
       targetApp: mission.targetApp,
@@ -225,28 +229,25 @@ export default function MissionDetailScreen() {
     });
     const startedAt = new Date().toISOString();
     timerStartedAtRef.current = timerStartedAtRef.current ?? startedAt;
-    const nextRemaining = remainingSeconds > 0 ? remainingSeconds : timeLimitSeconds;
-    setRemainingSeconds(nextRemaining);
-    setTimerState("running");
-    await recordMissionTimerEvent(mission.id, { eventType: "timer_start", remainingSeconds: nextRemaining });
+    setNowMs(Date.now());
+    await recordMissionTimerEvent(mission.id, { elapsedSeconds: 0, eventType: "timer_start" });
   }
 
   async function pauseTimer() {
-    if (!mission || hasFinishedEntertainmentRun) {
+    if (!mission || regularTimerState !== "running") {
       return;
     }
 
-    setTimerState("paused");
-    await recordMissionTimerEvent(mission.id, { eventType: "timer_pause", remainingSeconds });
+    await recordMissionTimerEvent(mission.id, { elapsedSeconds: regularElapsedSeconds, eventType: "timer_pause" });
   }
 
   async function resumeTimer() {
-    if (!mission) {
+    if (!mission || regularTimerState !== "paused") {
       return;
     }
 
-    setTimerState("running");
-    await recordMissionTimerEvent(mission.id, { eventType: "timer_resume", remainingSeconds });
+    setNowMs(Date.now());
+    await recordMissionTimerEvent(mission.id, { elapsedSeconds: regularElapsedSeconds, eventType: "timer_resume" });
   }
 
   async function startEntertainmentTimer() {
@@ -366,10 +367,18 @@ export default function MissionDetailScreen() {
     setSubmitMessage(t("timerResumed"));
   }
 
-  async function openAttachment(uri: string) {
+  async function openAttachment(attachment: TaskAttachment) {
     try {
+      const uri = await resolveAttachmentUri(attachment);
+
+      if (Platform.OS !== "web" && isShareableFileUri(uri)) {
+        await openNativeFile(uri, attachment.name);
+        return;
+      }
+
       await Linking.openURL(uri);
-    } catch {
+    } catch (error) {
+      console.warn("[Attachment] open failed", { error: readableError(error), name: attachment.name });
       Alert.alert(t("cannotOpenFileTitle"), t("cannotOpenFileBody"));
     }
   }
@@ -414,63 +423,65 @@ export default function MissionDetailScreen() {
 
       <View style={styles.grid}>
         <View style={[shared.card, styles.primaryCard]}>
-          <ScrollView style={styles.cardScroll} contentContainerStyle={styles.primaryCardContent}>
-            <View>
-              <Text style={styles.cardTitle}>{t("goals")}</Text>
-              {mission.goals.map((goal) => (
-                <View key={goal} style={styles.goalRow}>
-                  <Text style={styles.goalCheck}>✓</Text>
-                  <Text style={styles.goalText}>{goal}</Text>
-                </View>
-              ))}
-            </View>
+          <View style={styles.primaryCardMain}>
+            <ScrollView style={styles.cardScroll} contentContainerStyle={styles.primaryCardContent}>
+              <View>
+                <Text style={styles.cardTitle}>{t("goals")}</Text>
+                {mission.goals.map((goal) => (
+                  <View key={goal} style={styles.goalRow}>
+                    <Text style={styles.goalCheck}>✓</Text>
+                    <Text style={styles.goalText}>{goal}</Text>
+                  </View>
+                ))}
+              </View>
 
-            <View style={styles.planPanel}>
-              <Text style={styles.sectionLabel}>{t("todayPlan")}</Text>
-              <Text style={styles.planTitle}>{mission.planDetail.summary}</Text>
-              {mission.planDetail.vocabulary.length > 0 ? (
-                <View style={styles.tokenRow}>
-                  {mission.planDetail.vocabulary.map((word) => (
-                    <Text key={word} style={styles.token}>{word}</Text>
-                  ))}
-                </View>
-              ) : null}
-              {mission.planDetail.notes ? (
-                <Text numberOfLines={3} style={styles.planNotes}>{mission.planDetail.notes}</Text>
-              ) : null}
-              <View style={styles.planActions}>
-                {shouldShowMore ? (
-                  <Pressable style={styles.inlineButton} onPress={() => setIsPlanExpanded(true)}>
-                    <Text style={styles.inlineButtonText}>{t("more")}</Text>
-                  </Pressable>
+              <View style={styles.planPanel}>
+                <Text style={styles.sectionLabel}>{t("todayPlan")}</Text>
+                <Text style={styles.planTitle}>{mission.planDetail.summary}</Text>
+                {mission.planDetail.vocabulary.length > 0 ? (
+                  <View style={styles.tokenRow}>
+                    {mission.planDetail.vocabulary.map((word) => (
+                      <Text key={word} style={styles.token}>{word}</Text>
+                    ))}
+                  </View>
                 ) : null}
-              </View>
-              {mission.planDetail.attachments.length > 0 ? (
-                <View style={styles.attachmentList}>
-                  {mission.planDetail.attachments.map((attachment) => (
-                    <Pressable key={attachment.id} style={styles.attachmentRow} onPress={() => openAttachment(attachment.uri)}>
-                      <Text style={styles.attachmentIcon}>{fileIcon(attachment.name, attachment.mimeType)}</Text>
-                      <View style={styles.attachmentCopy}>
-                        <Text numberOfLines={1} style={styles.attachmentName}>{attachment.name}</Text>
-                        <Text style={styles.attachmentMeta}>{attachmentLabel(attachment.mimeType, attachment.size)}</Text>
-                      </View>
-                      <Text style={styles.attachmentOpen}>{t("view")}</Text>
+                {mission.planDetail.notes ? (
+                  <Text numberOfLines={3} style={styles.planNotes}>{mission.planDetail.notes}</Text>
+                ) : null}
+                <View style={styles.planActions}>
+                  {shouldShowMore ? (
+                    <Pressable style={styles.inlineButton} onPress={() => setIsPlanExpanded(true)}>
+                      <Text style={styles.inlineButtonText}>{t("more")}</Text>
                     </Pressable>
-                  ))}
+                  ) : null}
                 </View>
-              ) : null}
-            </View>
+              </View>
 
-            <View>
-              <View style={styles.bigNumberRow}>
-                <Text style={[styles.bigNumber, { color: mission.tone }]}>{percent}%</Text>
-                <Text style={styles.status}>{missionStatusText(displayStatus, t)}</Text>
+              <View>
+                <View style={styles.bigNumberRow}>
+                  <Text style={[styles.bigNumber, { color: mission.tone }]}>{percent}%</Text>
+                  <Text style={styles.status}>{missionStatusText(displayStatus, t)}</Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
+                </View>
               </View>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
-              </View>
+            </ScrollView>
+          </View>
+          {mission.planDetail.attachments.length > 0 ? (
+            <View style={styles.attachmentDock}>
+              <Text style={styles.sectionLabel}>{t("attachments")}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attachmentTileRow}>
+                {mission.planDetail.attachments.map((attachment) => (
+                  <Pressable key={attachment.id} style={styles.attachmentTile} onPress={() => openAttachment(attachment)}>
+                    <Text style={styles.attachmentTileIcon}>{fileIcon(attachment.name, attachment.mimeType)}</Text>
+                    <Text numberOfLines={1} style={styles.attachmentName}>{attachment.name}</Text>
+                    <Text numberOfLines={1} style={styles.attachmentMeta}>{attachmentLabel(attachment.mimeType, attachment.size)}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
             </View>
-          </ScrollView>
+          ) : null}
         </View>
 
         <View style={[shared.card, styles.secondaryCard]}>
@@ -536,10 +547,31 @@ export default function MissionDetailScreen() {
                 )}
               </View>
             ) : (
-              <View style={styles.executionPanel}>
-                <Text style={styles.sectionLabel}>{isSubmissionTask ? t("submissionTask") : t("completionTask")}</Text>
-                <Text style={styles.executionTitle}>{mission.status === "done" ? t("done") : t("pendingChildSubmission")}</Text>
-                <Text style={styles.timerHint}>{isSubmissionTask ? t("submissionTaskHint") : t("completionTaskHint")}</Text>
+              <View style={styles.timerPanel}>
+                <View style={styles.timerCopy}>
+                  <Text style={styles.sectionLabel}>{isSubmissionTask ? t("submissionTask") : t("completionTask")} · {t("elapsedTime")}</Text>
+                  <Text style={[styles.timerValue, { color: mission.tone }]}>{formatDuration(regularElapsedSeconds)}</Text>
+                  <Text style={styles.timerHint}>{isSubmissionTask ? t("submissionTaskHint") : t("completionTaskHint")}</Text>
+                </View>
+                {regularTimerState === "ended" || mission.status === "done" ? (
+                  <Text style={styles.timerDoneText}>{t("timerEnded")}</Text>
+                ) : (
+                  <View style={styles.timerActions}>
+                    {regularTimerState === "running" ? (
+                      <Pressable style={styles.timerButton} onPress={pauseTimer}>
+                        <Text style={styles.timerButtonText}>{t("pause")}</Text>
+                      </Pressable>
+                    ) : regularTimerState === "paused" ? (
+                      <Pressable style={styles.timerButton} onPress={resumeTimer}>
+                        <Text style={styles.timerButtonText}>{t("resume")}</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable style={styles.timerButton} onPress={startTimer}>
+                        <Text style={styles.timerButtonText}>{t("startTimer")}</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                )}
               </View>
             )}
             {!isTimedTask ? (
@@ -721,12 +753,146 @@ function fileIcon(name: string, mimeType?: string) {
   return "FILE";
 }
 
+async function resolveAttachmentUri(attachment: TaskAttachment) {
+  if (!attachment.uri.startsWith("data:")) {
+    return attachment.uri;
+  }
+
+  const match = attachment.uri.match(/^data:([^;,]+)?(;base64)?,(.*)$/);
+
+  if (!match) {
+    throw new Error("Invalid attachment data URI.");
+  }
+
+  const [, mimeType, base64Marker, payload] = match;
+  const fileName = safeAttachmentFileName(attachment.name, mimeType ?? attachment.mimeType);
+  const file = new File(Paths.cache, "koala-attachments", fileName);
+
+  file.parentDirectory.create({ idempotent: true, intermediates: true });
+  file.create({ overwrite: true });
+
+  if (base64Marker) {
+    file.write(payload, { encoding: "base64" });
+  } else {
+    file.write(decodeURIComponent(payload));
+  }
+
+  return file.uri;
+}
+
+async function openNativeFile(uri: string, title: string) {
+  try {
+    await Share.share({ title, url: uri });
+    return;
+  } catch (error) {
+    console.warn("[Attachment] share failed, trying Linking", { error: readableError(error), uri });
+  }
+
+  await Linking.openURL(uri);
+}
+
+function isShareableFileUri(uri: string) {
+  return uri.startsWith("file://") || uri.startsWith("content://");
+}
+
+function safeAttachmentFileName(name: string, mimeType?: string) {
+  const cleanName = name.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  const fallbackExtension = extensionForMimeType(mimeType);
+  const baseName = cleanName || `attachment-${Date.now()}${fallbackExtension}`;
+
+  return fallbackExtension && !baseName.toLowerCase().endsWith(fallbackExtension) ? `${baseName}${fallbackExtension}` : baseName;
+}
+
+function extensionForMimeType(mimeType?: string) {
+  switch (mimeType) {
+    case "application/pdf":
+      return ".pdf";
+    case "image/jpeg":
+      return ".jpg";
+    case "image/png":
+      return ".png";
+    case "audio/mpeg":
+      return ".mp3";
+    case "audio/wav":
+    case "audio/x-wav":
+      return ".wav";
+    default:
+      return "";
+  }
+}
+
 function formatDuration(totalSeconds: number) {
   const sign = totalSeconds < 0 ? "-" : "";
   const absoluteSeconds = Math.abs(totalSeconds);
   const minutes = Math.floor(absoluteSeconds / 60);
   const seconds = absoluteSeconds % 60;
   return `${sign}${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+type RegularTimerState = "idle" | "running" | "paused" | "ended";
+
+function regularTimerEvents(mission: Mission) {
+  return mission.eventRecords
+    .filter((event) => event.eventType === "timer_start" || event.eventType === "timer_pause" || event.eventType === "timer_resume" || event.eventType === "timer_end")
+    .sort((left, right) => new Date(left.recordedAt).getTime() - new Date(right.recordedAt).getTime());
+}
+
+function regularTimerStateForMission(mission: Mission): RegularTimerState {
+  if (mission.status === "done" || mission.completionRecord) {
+    return "ended";
+  }
+
+  const events = regularTimerEvents(mission);
+  const lastEvent = events[events.length - 1];
+
+  if (!lastEvent) {
+    return "idle";
+  }
+
+  if (lastEvent.eventType === "timer_start" || lastEvent.eventType === "timer_resume") {
+    return "running";
+  }
+
+  if (lastEvent.eventType === "timer_pause") {
+    return "paused";
+  }
+
+  return "ended";
+}
+
+function elapsedSecondsForRegularTimer(mission: Mission, nowMs: number) {
+  const events = regularTimerEvents(mission);
+
+  if (!events.length && mission.actualStartAt && mission.actualEndAt) {
+    return Math.max(0, Math.floor((new Date(mission.actualEndAt).getTime() - new Date(mission.actualStartAt).getTime()) / 1000));
+  }
+
+  let elapsedMs = 0;
+  let segmentStartedAt: number | undefined;
+
+  events.forEach((event) => {
+    const recordedAt = new Date(event.recordedAt).getTime();
+
+    if (Number.isNaN(recordedAt)) {
+      return;
+    }
+
+    if (event.eventType === "timer_start" || event.eventType === "timer_resume") {
+      segmentStartedAt = segmentStartedAt ?? recordedAt;
+      return;
+    }
+
+    if ((event.eventType === "timer_pause" || event.eventType === "timer_end") && segmentStartedAt !== undefined) {
+      elapsedMs += Math.max(0, recordedAt - segmentStartedAt);
+      segmentStartedAt = undefined;
+    }
+  });
+
+  if (segmentStartedAt !== undefined && regularTimerStateForMission(mission) === "running") {
+    elapsedMs += Math.max(0, nowMs - segmentStartedAt);
+  }
+
+  return Math.max(0, Math.floor(elapsedMs / 1000));
 }
 
 function formatClock(value: string) {
@@ -1172,6 +1338,10 @@ const styles = StyleSheet.create({
     minHeight: 0,
     overflow: "hidden"
   },
+  primaryCardMain: {
+    flex: 1,
+    minHeight: 0
+  },
   secondaryCard: {
     flex: 1,
     minHeight: 0,
@@ -1429,49 +1599,54 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900"
   },
-  attachmentList: {
-    gap: 10,
-    marginTop: 14
+  attachmentDock: {
+    borderTopWidth: 1,
+    borderTopColor: palette.line,
+    backgroundColor: "#FFFFFF",
+    paddingTop: 12
   },
-  attachmentRow: {
-    minHeight: 58,
+  attachmentTileRow: {
+    gap: 12,
+    paddingTop: 10,
+    paddingBottom: 2
+  },
+  attachmentTile: {
+    width: 132,
+    minHeight: 132,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: palette.line,
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
+    backgroundColor: "#FAF7F0",
     alignItems: "center",
-    gap: 12,
-    padding: 10
+    justifyContent: "center",
+    padding: 12
   },
-  attachmentIcon: {
-    width: 44,
+  attachmentTileIcon: {
+    width: 76,
+    height: 58,
     borderRadius: 8,
     backgroundColor: "#EEF3EA",
     color: palette.green,
-    fontSize: 12,
+    fontSize: 18,
     fontWeight: "900",
-    paddingVertical: 8,
+    lineHeight: 58,
+    marginBottom: 10,
     textAlign: "center"
-  },
-  attachmentCopy: {
-    flex: 1
   },
   attachmentName: {
     color: palette.ink,
-    fontSize: 15,
-    fontWeight: "900"
+    fontSize: 13,
+    fontWeight: "900",
+    maxWidth: "100%",
+    textAlign: "center"
   },
   attachmentMeta: {
     color: palette.muted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
-    marginTop: 3
-  },
-  attachmentOpen: {
-    color: palette.green,
-    fontSize: 13,
-    fontWeight: "900"
+    marginTop: 4,
+    maxWidth: "100%",
+    textAlign: "center"
   },
   actionGrid: {
     flexDirection: "row",

@@ -1,33 +1,48 @@
-import { Link, router } from "expo-router";
+import { Link, Redirect, router } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useKoalaStore } from "../../data/store";
 import { palette, shared } from "../../ui/styles";
 
 export default function CreateChildScreen() {
-  const { children, createChild, t } = useKoalaStore();
-  const [name, setName] = useState("Caitlyn");
-  const [age, setAge] = useState("9");
-  const [avatar, setAvatar] = useState("Koala");
-  const [grade, setGrade] = useState("3");
-  const [pin, setPin] = useState("1234");
+  const { children, createChild, family, parent, t } = useKoalaStore();
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
+  const [grade, setGrade] = useState("");
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  if (!parent) {
+    return <Redirect href="/auth/register" />;
+  }
+
+  if (!family) {
+    return <Redirect href="/auth/create-family" />;
+  }
 
   async function handleCreateChild() {
-    if (!/^\d{4,6}$/.test(pin)) {
-      setError(t("numericPin"));
+    if (!name.trim()) {
+      setError(t("childNameRequired"));
       return;
     }
 
     setError("");
-    await createChild({
-      name,
-      age: Number(age) || 0,
-      avatar,
-      grade: Number(grade) || 0,
-      pin
-    });
-    router.push("/auth/child-pin");
+    setIsLoading(true);
+
+    try {
+      await createChild({
+        name,
+        age: Number(age) || 0,
+        avatar: "Koala",
+        grade: Number(grade) || 0,
+        pin: generatedPin()
+      });
+      router.replace("/");
+    } catch {
+      setError(t("childCreateFailed"));
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
@@ -38,7 +53,7 @@ export default function CreateChildScreen() {
           <Text style={shared.title}>{t("parentCreatesChildLogin")}</Text>
           <Text style={shared.subtitle}>{t("childrenNoEmail")}</Text>
         </View>
-        <Link href="/auth/parent-apple" style={shared.navButton}>
+        <Link href="/auth/create-family" style={shared.navButton}>
           <Text style={shared.navButtonText}>{t("back")}</Text>
         </Link>
       </View>
@@ -49,23 +64,15 @@ export default function CreateChildScreen() {
           <Text style={styles.label}>{t("childName")}</Text>
           <TextInput style={styles.input} value={name} onChangeText={setName} placeholder={t("childName")} />
           <Text style={styles.label}>{t("age")}</Text>
-          <TextInput style={styles.input} value={age} onChangeText={setAge} keyboardType="number-pad" placeholder="9" />
-          <Text style={styles.label}>{t("avatar")}</Text>
-          <TextInput style={styles.input} value={avatar} onChangeText={setAvatar} placeholder="Koala" />
+          <TextInput style={styles.input} value={age} onChangeText={(value) => setAge(value.replace(/\D/g, ""))} keyboardType="number-pad" placeholder={t("optional")} />
           <Text style={styles.label}>{t("grade")}</Text>
-          <TextInput style={styles.input} value={grade} onChangeText={setGrade} keyboardType="number-pad" placeholder="3" />
-          <Text style={styles.label}>{t("numericPin")}</Text>
-          <TextInput
-            style={styles.input}
-            value={pin}
-            onChangeText={(value) => setPin(value.replace(/\D/g, ""))}
-            keyboardType="number-pad"
-            maxLength={6}
-            secureTextEntry
-          />
+          <TextInput style={styles.input} value={grade} onChangeText={(value) => setGrade(value.replace(/\D/g, ""))} keyboardType="number-pad" placeholder={t("optional")} />
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          <Pressable style={shared.navButtonAlt} onPress={handleCreateChild}>
-            <Text style={shared.navButtonAltText}>{t("createAndTryLogin")}</Text>
+          <Pressable disabled={isLoading} style={[shared.navButtonAlt, isLoading && styles.buttonDisabled]} onPress={handleCreateChild}>
+            {isLoading ? <ActivityIndicator color="#392D12" /> : <Text style={shared.navButtonAltText}>{t("addChild")}</Text>}
+          </Pressable>
+          <Pressable style={styles.skipButton} onPress={() => router.replace("/")}>
+            <Text style={styles.skipText}>{t("skipForNow")}</Text>
           </Pressable>
         </View>
 
@@ -79,7 +86,7 @@ export default function CreateChildScreen() {
               <View>
                 <Text style={styles.childName}>{child.name}</Text>
                 <Text style={styles.childMeta}>
-                  Grade {child.grade} · {child.pin ? `PIN ${child.pin}` : `PIN length ${child.pinLength ?? 4}`}
+                  {child.grade ? `${t("grade")} ${child.grade}` : t("gradeOptional")} · {child.pin ? `PIN ${child.pin}` : `PIN length ${child.pinLength ?? 4}`}
                 </Text>
               </View>
             </View>
@@ -88,6 +95,10 @@ export default function CreateChildScreen() {
       </View>
     </View>
   );
+}
+
+function generatedPin() {
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 const styles = StyleSheet.create({
@@ -164,5 +175,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
     marginBottom: 10
+  },
+  buttonDisabled: {
+    opacity: 0.7
+  },
+  skipButton: {
+    alignSelf: "center",
+    marginTop: 14,
+    padding: 8
+  },
+  skipText: {
+    color: palette.green,
+    fontSize: 15,
+    fontWeight: "900"
   }
 });

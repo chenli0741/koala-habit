@@ -5,37 +5,26 @@ import { authSteps } from "../../data/auth";
 import { useKoalaStore } from "../../data/store";
 import { palette, shared } from "../../ui/styles";
 
-type AuthMode = "login" | "register";
-
 export default function AuthStartScreen() {
-  const { activeChild, children, loginParent, parent, registerParent, t } = useKoalaStore();
+  const { activeChild, children, loginParent, parent, t } = useKoalaStore();
   const { width } = useWindowDimensions();
-  const [authMode, setAuthMode] = useState<AuthMode>("login");
-  const [name, setName] = useState(parent?.name ?? "Chen");
   const [email, setEmail] = useState(parent?.email ?? "parent@example.com");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
 
   async function handleSubmit() {
-    if (!email.trim() || password.length < 6 || (authMode === "register" && !name.trim())) {
+    if (!email.trim() || password.length < 6) {
       setMessage(t("nameEmailPasswordRequired"));
       return;
     }
 
-    if (authMode === "login") {
-      if (await loginParent(email, password)) {
-        setMessage(t("signedIn"));
-        router.replace("/auth/child-pin");
-        return;
-      }
-
-      setMessage(t("loginFailed"));
+    if (await loginParent(email, password)) {
+      setMessage(t("signedIn"));
+      router.replace(children.length > 0 ? "/auth/child-pin" : "/auth/create-child");
       return;
     }
 
-    await registerParent(name, email, password);
-    setMessage(t("registeredParent"));
-    router.replace("/auth/child-pin");
+    setMessage(t("loginFailed"));
   }
 
   const isCompact = width < 900;
@@ -44,30 +33,10 @@ export default function AuthStartScreen() {
     <ScrollView style={styles.scroller} contentContainerStyle={[styles.screen, isCompact && styles.screenCompact]}>
       <View style={[styles.hero, isCompact && styles.heroCompact]}>
         <Text style={shared.kicker}>{t("parentLogin")}</Text>
-        <Text style={[shared.title, isCompact && styles.titleCompact]}>
-          {authMode === "login" ? t("signIn") : t("createAccount")}
-        </Text>
+        <Text style={[shared.title, isCompact && styles.titleCompact]}>{t("signIn")}</Text>
         <Text style={[shared.subtitle, isCompact && styles.subtitleCompact]}>{t("kidsNoEmail")}</Text>
         <View style={styles.registerBox}>
-          <View style={styles.modeSwitch}>
-            {(["login", "register"] as AuthMode[]).map((mode) => (
-              <Pressable
-                key={mode}
-                onPress={() => {
-                  setAuthMode(mode);
-                  setMessage("");
-                }}
-                style={[styles.modeButton, authMode === mode && styles.modeButtonActive]}
-              >
-                <Text style={[styles.modeText, authMode === mode && styles.modeTextActive]}>
-                  {mode === "login" ? t("signIn") : t("register")}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {authMode === "register" ? (
-            <TextInput style={styles.input} value={name} onChangeText={setName} placeholder={t("parentName")} />
-          ) : null}
+          <Text style={styles.formTitle}>{t("parentLogin")}</Text>
           <TextInput
             autoCapitalize="none"
             keyboardType="email-address"
@@ -85,8 +54,11 @@ export default function AuthStartScreen() {
           />
           {message ? <Text style={styles.message}>{message}</Text> : null}
           <Pressable style={shared.navButtonAlt} onPress={handleSubmit}>
-            <Text style={shared.navButtonAltText}>{authMode === "login" ? t("signIn") : t("register")}</Text>
+            <Text style={shared.navButtonAltText}>{t("signIn")}</Text>
           </Pressable>
+          <Link href="/auth/register" style={styles.registerLink}>
+            <Text style={styles.registerLinkText}>{t("registerParentAccount")}</Text>
+          </Link>
         </View>
         <View style={styles.actions}>
           {parent ? <Link href="/auth/child-pin" style={shared.navButtonAlt}>
@@ -218,6 +190,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
     marginBottom: 10
+  },
+  registerLink: {
+    alignSelf: "center",
+    marginTop: 16
+  },
+  registerLinkText: {
+    color: palette.green,
+    fontSize: 15,
+    fontWeight: "900"
   },
   panel: {
     ...shared.card,

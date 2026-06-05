@@ -12,6 +12,21 @@ type ServerChild = {
   pinLength?: number;
 };
 
+type ServerFamily = {
+  id: string;
+  language?: string;
+  name: string;
+  parent: ParentAccount | null;
+  timeZone?: string;
+  children: ServerChild[];
+};
+
+type ServerSession = {
+  familyId?: string;
+  role: "parent" | "child";
+  token: string;
+};
+
 type ServerMission = {
   childId?: string;
   completionRecord?: {
@@ -78,6 +93,7 @@ type ServerMission = {
   executionType?: MissionExecutionType;
   timeLimitMinutes?: number;
   targetApp?: string;
+  source?: string;
   energy: number;
   progress?: number;
   total?: number;
@@ -98,6 +114,7 @@ type MissionPayload = {
   rewardMinutes: number;
   timeLimitMinutes?: number;
   targetApp?: string;
+  source?: string;
   energy: number;
   progress: number;
   total: number;
@@ -105,13 +122,29 @@ type MissionPayload = {
   tone: string;
 };
 
-export async function fetchFamily() {
-  const data = await request<{ family: { parent: ParentAccount | null; children: ServerChild[] } | null }>("/families/demo");
+export async function fetchFamily(familyId = "demo") {
+  const data = await request<{ family: ServerFamily | null }>(`/families/${encodeURIComponent(familyId)}`);
 
-  return {
-    parent: data.family?.parent ?? null,
-    children: data.family?.children.map(mapChild) ?? []
-  };
+  return mapFamily(data.family);
+}
+
+export async function createFamilyApi(familyId: string, name: string, timeZone: string, language: string) {
+  const data = await request<{ family: ServerFamily }>(`/families/${encodeURIComponent(familyId)}`, {
+    body: JSON.stringify({
+      language,
+      name,
+      timeZone
+    }),
+    method: "POST"
+  });
+
+  return mapFamily(data.family);
+}
+
+export async function fetchDemoFamily() {
+  const data = await request<{ family: ServerFamily | null }>("/families/demo");
+
+  return mapFamily(data.family);
 }
 
 export async function fetchToday(childId: string) {
@@ -127,7 +160,7 @@ export async function fetchMissions(childId: string, startDate: string, endDate:
 }
 
 export async function signInParentApi(name: string, email: string) {
-  const data = await request<{ family: { parent: ParentAccount | null; children: ServerChild[] } }>("/auth/apple/parent", {
+  const data = await request<{ family: ServerFamily; session: ServerSession }>("/auth/apple/parent", {
     body: JSON.stringify({
       identityToken: "local-demo-token",
       name,
@@ -136,14 +169,11 @@ export async function signInParentApi(name: string, email: string) {
     method: "POST"
   });
 
-  return {
-    parent: data.family.parent,
-    children: data.family.children.map(mapChild)
-  };
+  return { ...mapFamily(data.family), token: data.session.token, familyId: data.session.familyId ?? data.family.id };
 }
 
 export async function registerParentApi(name: string, email: string, password: string) {
-  const data = await request<{ family: { parent: ParentAccount | null; children: ServerChild[] } }>("/auth/register/parent", {
+  const data = await request<{ family: ServerFamily; session: ServerSession }>("/auth/register/parent", {
     body: JSON.stringify({
       name,
       email,
@@ -152,14 +182,11 @@ export async function registerParentApi(name: string, email: string, password: s
     method: "POST"
   });
 
-  return {
-    parent: data.family.parent,
-    children: data.family.children.map(mapChild)
-  };
+  return { ...mapFamily(data.family), token: data.session.token, familyId: data.session.familyId ?? data.family.id };
 }
 
 export async function loginParentApi(email: string, password: string) {
-  const data = await request<{ family: { parent: ParentAccount | null; children: ServerChild[] } }>("/auth/login/parent", {
+  const data = await request<{ family: ServerFamily; session: ServerSession }>("/auth/login/parent", {
     body: JSON.stringify({
       email,
       password
@@ -167,14 +194,11 @@ export async function loginParentApi(email: string, password: string) {
     method: "POST"
   });
 
-  return {
-    parent: data.family.parent,
-    children: data.family.children.map(mapChild)
-  };
+  return { ...mapFamily(data.family), token: data.session.token, familyId: data.session.familyId ?? data.family.id };
 }
 
 export async function signInGoogleParentApi(name: string, email: string, idToken = "local-google-demo-token") {
-  const data = await request<{ family: { parent: ParentAccount | null; children: ServerChild[] } }>("/auth/google/parent", {
+  const data = await request<{ family: ServerFamily; session: ServerSession }>("/auth/google/parent", {
     body: JSON.stringify({
       idToken,
       name,
@@ -183,16 +207,14 @@ export async function signInGoogleParentApi(name: string, email: string, idToken
     method: "POST"
   });
 
-  return {
-    parent: data.family.parent,
-    children: data.family.children.map(mapChild)
-  };
+  return { ...mapFamily(data.family), token: data.session.token, familyId: data.session.familyId ?? data.family.id };
 }
 
-export async function createChildApi(child: Omit<ChildAccount, "id">) {
-  const data = await request<{ child: ServerChild }>("/families/demo/children", {
+export async function createChildApi(familyId: string, child: Omit<ChildAccount, "id">) {
+  const data = await request<{ child: ServerChild }>(`/families/${encodeURIComponent(familyId)}/children`, {
     body: JSON.stringify({
       name: child.name,
+      age: child.age,
       grade: child.grade,
       pin: child.pin
     }),
@@ -249,6 +271,7 @@ export type MissionEvidence = {
 };
 
 export type MissionTimerEventPayload = {
+  elapsedSeconds?: number;
   eventType: "timer_start" | "timer_pause" | "timer_resume" | "timer_end";
   remainingSeconds?: number;
 };
@@ -352,6 +375,7 @@ export function toMissionPayload(childId: string, draft: Omit<Mission, "id">): M
     category: draft.category,
     target: draft.target,
     targetApp: draft.targetApp,
+    source: draft.source ?? "parent",
     executionType: draft.executionType,
     detail: draft.detail,
     goals: draft.goals,
@@ -413,6 +437,17 @@ function mapChild(child: ServerChild): ChildAccount {
   };
 }
 
+function mapFamily(family: ServerFamily | null) {
+  return {
+    id: family?.id ?? "family-demo",
+    language: family?.language ?? "English",
+    name: family?.name ?? "Koala Family",
+    parent: family?.parent ?? null,
+    timeZone: family?.timeZone ?? "America/Los_Angeles",
+    children: family?.children.map(mapChild) ?? []
+  };
+}
+
 function mapMission(mission: ServerMission): Mission {
   const target = mission.target;
   const planSummary = mission.planDetail?.summary ?? mission.detail ?? target;
@@ -442,6 +477,7 @@ function mapMission(mission: ServerMission): Mission {
     executionType: mission.executionType ?? inferExecutionType(mission),
     timeLimitMinutes: demoTimeLimitForMission(mission.title) ?? mission.timeLimitMinutes,
     targetApp: mission.targetApp ?? demoTargetAppForMission(mission.title),
+    source: mission.source ?? "parent",
     actualStartAt: mission.actualStartAt,
     actualEndAt: mission.actualEndAt,
     energy: mission.energy,

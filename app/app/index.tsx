@@ -16,13 +16,14 @@ type CalendarDay = {
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function HomeScreen() {
-  const { activeChild, completedCount, isSessionReady, missions, parent, t, todayEnergy } = useKoalaStore();
+  const { activeChild, children, completedCount, isSessionReady, missions, parent, t, todayEnergy } = useKoalaStore();
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>("day");
   const [calendarMissions, setCalendarMissions] = useState<Mission[]>([]);
   const [isCalendarLoading, setIsCalendarLoading] = useState(false);
   const profile = profileForChild(activeChild);
   const totalTasks = missions.length;
   const today = useMemo(() => todayKey(), []);
+  const todayTitleDate = useMemo(() => formatShortDate(today), [today]);
   const calendarDays = useMemo(() => weekDaysForDate(new Date()), []);
   const scheduleMissions = taskViewMode === "day" ? missions : calendarMissions;
 
@@ -78,6 +79,27 @@ export default function HomeScreen() {
     return <Redirect href="/auth" />;
   }
 
+  if (children.length === 0) {
+    return (
+      <View style={styles.screen}>
+        <View style={styles.emptyDashboard}>
+          <Text style={styles.logo}>Koala Habit</Text>
+          <Text style={shared.kicker}>{t("taskDashboard")}</Text>
+          <Text style={shared.title}>{t("addFirstChildPrompt")}</Text>
+          <Text style={shared.subtitle}>{t("addFirstChildDetail")}</Text>
+          <View style={styles.emptyActions}>
+            <Link href="/auth/create-child" style={shared.navButtonAlt}>
+              <Text style={shared.navButtonAltText}>{t("addChild")}</Text>
+            </Link>
+            <Link href="/parent" style={shared.navButton}>
+              <Text style={shared.navButtonText}>{t("parent")}</Text>
+            </Link>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   if (!activeChild) {
     return <Redirect href="/auth/child-pin" />;
   }
@@ -122,7 +144,9 @@ export default function HomeScreen() {
           <View style={styles.missionPanel}>
             <View style={styles.panelHeader}>
               <View>
-                <Text style={styles.panelTitle}>{taskViewMode === "day" ? t("todayTasks") : t("taskCalendar")}</Text>
+                <Text style={styles.panelTitle}>
+                  {taskViewMode === "day" ? `${t("todayTasks")} (${todayTitleDate})` : t("taskCalendar")}
+                </Text>
                 <TaskViewSwitch value={taskViewMode} onChange={setTaskViewMode} t={t} />
               </View>
               <View style={styles.panelActions}>
@@ -243,25 +267,33 @@ function TaskSchedule({
       {missions.map((mission) => {
         const percent = Math.round((mission.progress / mission.total) * 100);
         return (
-          <Link key={mission.id} href={`/mission/${mission.id}`} style={styles.missionCard}>
-            <Text style={styles.missionIcon}>{mission.icon}</Text>
-            <View style={styles.missionBody}>
-              <View style={styles.missionTitleRow}>
-                <Text style={styles.missionLabel}>{mission.title}</Text>
-                <Text style={styles.status}>{missionStatusText(mission.status, t)}</Text>
+          <Link key={mission.id} href={`/mission/${mission.id}`} asChild>
+            <Pressable style={styles.missionCard}>
+              <View style={styles.missionIconSlot}>
+                <Text style={styles.missionIcon}>{mission.icon}</Text>
               </View>
-              <View style={styles.missionMetaRow}>
-                <Text style={styles.missionDetail}>{mission.target}</Text>
-                {mission.targetApp ? <Text style={styles.timeLimitPill}>{mission.targetApp}</Text> : null}
-                {mission.timeLimitMinutes ? <Text style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text> : null}
+              <View style={styles.missionBody}>
+                <View style={styles.missionTitleRow}>
+                  <Text numberOfLines={1} style={styles.missionLabel}>{mission.title}</Text>
+                  <Text numberOfLines={1} style={styles.status}>{missionStatusText(mission.status, t)}</Text>
+                </View>
+                <View style={styles.missionMetaRow}>
+                  <Text numberOfLines={1} style={styles.missionDetail}>{mission.target}</Text>
+                  <View style={styles.missionPills}>
+                    {mission.targetApp ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.targetApp}</Text> : null}
+                    {mission.timeLimitMinutes ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text> : null}
+                  </View>
+                </View>
+                <View style={styles.missionProgressRow}>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
+                  </View>
+                  <Text style={styles.missionCount}>
+                    {formatPoints(mission.energy)}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
-              </View>
-            </View>
-            <Text style={styles.missionCount}>
-              {formatPoints(mission.energy)}
-            </Text>
+            </Pressable>
           </Link>
         );
       })}
@@ -301,6 +333,11 @@ function weekDaysForDate(date: Date): CalendarDay[] {
 
 function todayKey() {
   return dateKey(new Date());
+}
+
+function formatShortDate(dateKeyValue: string) {
+  const [, month, day] = dateKeyValue.split("-");
+  return `${month}/${day}`;
 }
 
 function dateKey(date: Date) {
@@ -349,6 +386,18 @@ const styles = StyleSheet.create({
   sidebar: {
     width: 280,
     gap: 18
+  },
+  emptyDashboard: {
+    ...shared.card,
+    alignSelf: "center",
+    width: "100%",
+    maxWidth: 720
+  },
+  emptyActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginTop: 22
   },
   logo: {
     fontSize: 28,
@@ -441,7 +490,10 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
     gap: 10,
+    paddingRight: 86,
     paddingTop: 6
   },
   contentGrid: {
@@ -530,66 +582,103 @@ const styles = StyleSheet.create({
     paddingBottom: 2
   },
   missionCard: {
-    minHeight: 112,
+    minHeight: 108,
     flexDirection: "row",
     alignItems: "center",
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#E7DED0",
-    padding: 16,
+    backgroundColor: palette.card,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     marginBottom: 14,
-    gap: 14,
+    gap: 16,
     textDecorationLine: "none"
+  },
+  missionIconSlot: {
+    width: 54,
+    height: 64,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0
   },
   missionIcon: {
     width: 54,
-    fontSize: 34,
+    fontSize: 30,
+    lineHeight: 36,
     textAlign: "center"
   },
   missionBody: {
-    flex: 1
+    flex: 1,
+    minWidth: 0,
+    gap: 6
   },
   missionTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12
+    gap: 10,
+    minHeight: 24
   },
   missionLabel: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 20,
+    lineHeight: 24,
     fontWeight: "900",
     color: palette.ink
   },
   status: {
+    width: 72,
     fontSize: 13,
+    lineHeight: 16,
     fontWeight: "800",
-    color: palette.muted
+    color: palette.muted,
+    textAlign: "left"
   },
   missionDetail: {
     flex: 1,
+    minWidth: 0,
     fontSize: 15,
+    lineHeight: 20,
     color: palette.muted
   },
   missionMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginTop: 4
+    gap: 10,
+    minHeight: 24
+  },
+  missionPills: {
+    width: 132,
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    gap: 6,
+    flexShrink: 0
   },
   timeLimitPill: {
     borderRadius: 8,
     backgroundColor: "#EEF3EA",
     color: palette.green,
     fontSize: 12,
+    lineHeight: 14,
     fontWeight: "900",
     paddingHorizontal: 8,
-    paddingVertical: 4
+    paddingVertical: 3,
+    maxWidth: 76,
+    overflow: "hidden"
+  },
+  missionProgressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 20
   },
   progressTrack: {
+    flex: 1,
+    minWidth: 0,
     height: 9,
     borderRadius: 5,
     backgroundColor: "#EEE8DD",
-    marginTop: 14,
     overflow: "hidden"
   },
   progressFill: {
@@ -597,9 +686,10 @@ const styles = StyleSheet.create({
     borderRadius: 5
   },
   missionCount: {
-    width: 58,
+    width: 48,
     textAlign: "right",
     fontSize: 18,
+    lineHeight: 22,
     fontWeight: "900",
     color: palette.ink
   },

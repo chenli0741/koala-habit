@@ -16,6 +16,13 @@ type ChildInput = {
   pin: string;
 };
 
+type FamilyInput = {
+  familyId: string;
+  language: string;
+  name: string;
+  timeZone: string;
+};
+
 export type MissionInput = {
   attachments?: PlanAttachmentInput[];
   category: string;
@@ -29,6 +36,7 @@ export type MissionInput = {
   repeatRule?: string;
   rewardMinutes: number;
   scheduledTime?: string;
+  source?: string;
   status: "done" | "todo" | "in_progress" | "expired";
   target: string;
   targetApp?: string;
@@ -39,6 +47,7 @@ export type MissionInput = {
 };
 
 export type MissionTimerEventInput = {
+  elapsedSeconds?: number;
   eventType: "timer_start" | "timer_pause" | "timer_resume" | "timer_end";
   remainingSeconds?: number;
 };
@@ -107,6 +116,7 @@ export type TaskTemplateInput = {
   repeatRule: string;
   rewardMinutes: number;
   scheduledTime?: string;
+  source?: string;
   target: string;
   targetApp?: string;
   timeLimitMinutes?: number;
@@ -143,8 +153,14 @@ export async function initDb() {
       create table if not exists families (
         id text primary key,
         name text not null,
+        time_zone text not null default 'America/Los_Angeles',
+        language text not null default 'English',
         created_at timestamptz not null default now()
       );
+
+    alter table families add column if not exists time_zone text not null default 'America/Los_Angeles';
+    alter table families add column if not exists language text not null default 'English';
+    alter table families add column if not exists updated_at timestamptz not null default now();
 
     create table if not exists parents (
       id text primary key,
@@ -164,7 +180,7 @@ export async function initDb() {
       family_id text not null references families(id) on delete cascade,
       name text not null,
       age integer not null default 9,
-      grade integer not null,
+      grade integer not null default 0,
       pin text not null,
       companion_name text not null default 'Koko',
       companion_level integer not null default 1,
@@ -229,6 +245,7 @@ export async function initDb() {
     alter table task_templates add column if not exists default_scheduled_time text;
     alter table task_templates add column if not exists default_time_limit_minutes integer;
     alter table task_templates add column if not exists default_target_app text;
+    alter table task_templates add column if not exists default_source text not null default 'parent';
 
     create table if not exists task_occurrences (
       id text primary key,
@@ -253,6 +270,7 @@ export async function initDb() {
 
     alter table task_occurrences add column if not exists time_limit_minutes integer;
     alter table task_occurrences add column if not exists target_app text;
+    alter table task_occurrences add column if not exists source text not null default 'parent';
     alter table task_occurrences add column if not exists actual_start_at timestamptz;
     alter table task_occurrences add column if not exists actual_end_at timestamptz;
 
@@ -359,7 +377,7 @@ export async function initDb() {
 export async function upsertFamilyWithParent(input: ParentInput) {
   assertPool();
 
-  const familyId = "family-demo";
+  const familyId = familyIdForEmail(input.email);
   const parentId = `parent-${slugify(input.email)}`;
 
   await pool!.query(
@@ -389,7 +407,7 @@ export async function upsertFamilyWithParent(input: ParentInput) {
 export async function registerParent(input: ParentInput) {
   assertPool();
 
-  const familyId = "family-demo";
+  const familyId = familyIdForEmail(input.email);
   const parentId = `parent-${slugify(input.email)}`;
   const passwordHash = input.password ? hashPassword(input.password) : null;
 
@@ -418,6 +436,29 @@ export async function registerParent(input: ParentInput) {
   return getFamily(familyId);
 }
 
+export async function updateFamily(input: FamilyInput) {
+  assertPool();
+
+  const result = await pool!.query(
+    `
+      update families
+      set name = $2,
+          time_zone = $3,
+          language = $4,
+          updated_at = now()
+      where id = $1
+      returning id
+    `,
+    [input.familyId, input.name, input.timeZone, input.language]
+  );
+
+  if (result.rowCount === 0) {
+    return null;
+  }
+
+  return getFamily(input.familyId);
+}
+
 export async function loginParent(email: string, password: string) {
   assertPool();
 
@@ -439,8 +480,8 @@ export async function loginParent(email: string, password: string) {
 export async function getFamily(familyId = "family-demo") {
   assertPool();
 
-  const familyResult = await pool!.query("select id, name from families where id = $1", [familyId]);
-  const family = familyResult.rows[0] as { id: string; name: string } | undefined;
+  const familyResult = await pool!.query("select id, name, time_zone, language from families where id = $1", [familyId]);
+  const family = familyResult.rows[0] as { id: string; language: string; name: string; time_zone: string } | undefined;
 
   if (!family) {
     return null;
@@ -454,6 +495,7 @@ export async function getFamily(familyId = "family-demo") {
 
   return {
     ...family,
+    timeZone: family.time_zone,
     parent: parentResult.rows[0] ?? null,
     children
   };
@@ -541,6 +583,7 @@ export async function getToday(childId: string) {
         occurrence.scheduled_time,
         occurrence.time_limit_minutes,
         coalesce(template.default_target_app, occurrence.target_app) as target_app,
+        coalesce(occurrence.source, template.default_source, 'parent') as source,
         occurrence.actual_start_at,
         occurrence.actual_end_at,
         template.icon,
@@ -673,6 +716,7 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
         occurrence.scheduled_time,
         occurrence.time_limit_minutes,
         coalesce(template.default_target_app, occurrence.target_app) as target_app,
+        coalesce(occurrence.source, template.default_source, 'parent') as source,
         occurrence.actual_start_at,
         occurrence.actual_end_at,
         template.icon,
@@ -792,6 +836,7 @@ export async function getTaskTemplatesForChild(childId: string) {
         default_total,
         default_time_limit_minutes,
         default_target_app,
+        default_source,
         tone,
         rrule,
         default_scheduled_time,
@@ -816,9 +861,9 @@ export async function createTaskTemplate(input: TaskTemplateInput) {
       insert into task_templates (
         id, child_id, icon, title, category, default_target, default_goals,
         default_reward_minutes, default_energy, default_total, tone, rrule,
-        default_scheduled_time, default_time_limit_minutes, default_target_app, active
+        default_scheduled_time, default_time_limit_minutes, default_target_app, default_source, active
       )
-      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     `,
     [
       templateId,
@@ -836,6 +881,7 @@ export async function createTaskTemplate(input: TaskTemplateInput) {
       input.scheduledTime ?? null,
       input.timeLimitMinutes ?? null,
       input.targetApp ?? null,
+      input.source ?? "parent",
       input.active ?? true
     ]
   );
@@ -862,7 +908,8 @@ export async function updateTaskTemplate(templateId: string, input: TaskTemplate
           default_scheduled_time = $12,
           default_time_limit_minutes = $13,
           default_target_app = $14,
-          active = $15,
+          default_source = $15,
+          active = $16,
           updated_at = now()
       where id = $1
       returning id
@@ -882,6 +929,7 @@ export async function updateTaskTemplate(templateId: string, input: TaskTemplate
       input.scheduledTime ?? null,
       input.timeLimitMinutes ?? null,
       input.targetApp ?? null,
+      input.source ?? "parent",
       input.active ?? true
     ]
   );
@@ -904,7 +952,7 @@ export async function createOccurrenceFromTemplate(templateId: string, occurrenc
   const result = await pool!.query(
     `
       insert into task_occurrences (
-        id, template_id, child_id, occurrence_date, title, target, scheduled_time, time_limit_minutes, target_app, progress, total, status
+        id, template_id, child_id, occurrence_date, title, target, scheduled_time, time_limit_minutes, target_app, source, progress, total, status
       )
       select
         $2,
@@ -916,6 +964,7 @@ export async function createOccurrenceFromTemplate(templateId: string, occurrenc
         template.default_scheduled_time,
         template.default_time_limit_minutes,
         template.default_target_app,
+        template.default_source,
         0,
         template.default_total,
         'pending'
@@ -968,9 +1017,9 @@ export async function createMission(input: MissionInput) {
     `
       insert into task_templates (
         id, child_id, icon, title, category, default_target, default_goals,
-        default_reward_minutes, default_energy, default_total, tone, rrule, default_scheduled_time, default_time_limit_minutes, default_target_app
+        default_reward_minutes, default_energy, default_total, tone, rrule, default_scheduled_time, default_time_limit_minutes, default_target_app, default_source
       )
-      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)
+      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16)
     `,
     [
       templateId,
@@ -987,16 +1036,17 @@ export async function createMission(input: MissionInput) {
       input.repeatRule ?? "FREQ=DAILY",
       input.scheduledTime ?? null,
       input.timeLimitMinutes ?? null,
-      input.targetApp ?? null
+      input.targetApp ?? null,
+      input.source ?? "parent"
     ]
   );
 
   await pool!.query(
     `
       insert into task_occurrences (
-        id, template_id, child_id, occurrence_date, title, target, scheduled_time, time_limit_minutes, target_app, progress, total, status
+        id, template_id, child_id, occurrence_date, title, target, scheduled_time, time_limit_minutes, target_app, source, progress, total, status
       )
-      values ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11, $12)
+      values ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     `,
     [
       occurrenceId,
@@ -1008,6 +1058,7 @@ export async function createMission(input: MissionInput) {
       input.scheduledTime ?? null,
       input.timeLimitMinutes ?? null,
       input.targetApp ?? null,
+      input.source ?? "parent",
       input.progress,
       input.total,
       toOccurrenceStatus(input.status)
@@ -1058,6 +1109,7 @@ export async function updateMission(missionId: string, input: MissionInput) {
           scheduled_time = $8,
           time_limit_minutes = $9,
           target_app = $10,
+          source = $11,
           updated_at = now()
       where id = $1
     `,
@@ -1071,7 +1123,8 @@ export async function updateMission(missionId: string, input: MissionInput) {
       input.occurrenceDate ?? null,
       input.scheduledTime ?? null,
       input.timeLimitMinutes ?? null,
-      input.targetApp ?? null
+      input.targetApp ?? null,
+      input.source ?? "parent"
     ]
   );
 
@@ -1098,6 +1151,7 @@ export async function updateMission(missionId: string, input: MissionInput) {
             scheduled_time = $8,
             time_limit_minutes = $9,
             target_app = $10,
+            source = $11,
             updated_at = now()
         where id = $1
       `,
@@ -1111,7 +1165,8 @@ export async function updateMission(missionId: string, input: MissionInput) {
         input.occurrenceDate ?? null,
         input.scheduledTime ?? null,
         input.timeLimitMinutes ?? null,
-        input.targetApp ?? null
+        input.targetApp ?? null,
+        input.source ?? "parent"
       ]
     );
   }
@@ -1128,6 +1183,7 @@ export async function updateMission(missionId: string, input: MissionInput) {
           default_scheduled_time = $8,
           default_time_limit_minutes = $9,
           default_target_app = $10,
+          default_source = $11,
           updated_at = now()
       from task_occurrences occurrence
       where occurrence.id = $1
@@ -1143,7 +1199,8 @@ export async function updateMission(missionId: string, input: MissionInput) {
       input.repeatRule ?? "FREQ=DAILY",
       input.scheduledTime ?? null,
       input.timeLimitMinutes ?? null,
-      input.targetApp ?? null
+      input.targetApp ?? null,
+      input.source ?? "parent"
     ]
   );
 
@@ -1441,7 +1498,7 @@ export async function recordMissionTimerEvent(missionId: string, input: MissionT
       update task_occurrences
       set actual_start_at = case when $2 = 'timer_start' then coalesce(actual_start_at, now()) else actual_start_at end,
           actual_end_at = case when $2 = 'timer_end' then now() else actual_end_at end,
-          status = case when $2 = 'timer_end' and status <> 'done' then 'expired' else status end,
+          status = case when $2 = 'timer_end' and time_limit_minutes is not null and status <> 'done' then 'expired' else status end,
           updated_at = now()
       where id = $1
       returning id, child_id
@@ -1462,7 +1519,7 @@ export async function recordMissionTimerEvent(missionId: string, input: MissionT
         update task_occurrences
         set actual_start_at = case when $2 = 'timer_start' then coalesce(actual_start_at, now()) else actual_start_at end,
             actual_end_at = case when $2 = 'timer_end' then now() else actual_end_at end,
-            status = case when $2 = 'timer_end' and status <> 'done' then 'expired' else status end,
+            status = case when $2 = 'timer_end' and time_limit_minutes is not null and status <> 'done' then 'expired' else status end,
             updated_at = now()
         where id = $1
         returning id, child_id
@@ -1496,9 +1553,9 @@ export async function recordMissionTimerEvent(missionId: string, input: MissionT
 
   await insertTaskEvent({
     childId: occurrence.child_id,
-    content: `${timerEventTitle(input.eventType)}${input.remainingSeconds === undefined ? "." : ` with ${input.remainingSeconds} seconds remaining.`}`,
+    content: timerEventContent(input.eventType, input),
     eventType: input.eventType,
-    metadata: { remainingSeconds: input.remainingSeconds ?? null },
+    metadata: { elapsedSeconds: input.elapsedSeconds ?? null, remainingSeconds: input.remainingSeconds ?? null },
     occurrenceId,
     title: timerEventTitle(input.eventType)
   });
@@ -1862,6 +1919,12 @@ function timerEventTitle(eventType: MissionTimerEventInput["eventType"]) {
   }
 }
 
+function timerEventContent(eventType: MissionTimerEventInput["eventType"], input: Pick<MissionTimerEventInput, "elapsedSeconds" | "remainingSeconds">) {
+  const elapsedText = input.elapsedSeconds === undefined ? "" : ` with ${input.elapsedSeconds} seconds elapsed`;
+  const remainingText = input.remainingSeconds === undefined ? "" : ` with ${input.remainingSeconds} seconds remaining`;
+  return `${timerEventTitle(eventType)}${elapsedText}${remainingText}.`;
+}
+
 async function ensureTodayOccurrences(childId: string) {
   assertPool();
 
@@ -1952,6 +2015,7 @@ async function getMissionOccurrence(occurrenceId: string) {
         occurrence.scheduled_time,
         occurrence.time_limit_minutes,
         coalesce(template.default_target_app, occurrence.target_app) as target_app,
+        coalesce(occurrence.source, template.default_source, 'parent') as source,
         occurrence.actual_start_at,
         occurrence.actual_end_at,
         template.icon,
@@ -2064,6 +2128,7 @@ async function getTaskTemplate(templateId: string) {
         default_total,
         default_time_limit_minutes,
         default_target_app,
+        default_source,
         tone,
         rrule,
         default_scheduled_time,
@@ -2181,6 +2246,7 @@ async function resolveMissionOccurrences(childId: string, range: MissionRange, s
         template.default_total,
         template.default_time_limit_minutes,
         template.default_target_app,
+        template.default_source,
         template.tone,
         template.rrule,
         template.default_scheduled_time,
@@ -2259,6 +2325,7 @@ function virtualMissionRow(template: Record<string, unknown>, occurrenceDate: st
     scheduled_time: template.default_scheduled_time,
     time_limit_minutes: template.default_time_limit_minutes,
     target_app: template.default_target_app,
+    source: template.default_source ?? "parent",
     actual_start_at: null,
     actual_end_at: null,
     icon: template.icon,
@@ -2304,6 +2371,7 @@ function mapTaskTemplate(row: Record<string, unknown>) {
     total: Number(row.default_total),
     timeLimitMinutes: row.default_time_limit_minutes === null || row.default_time_limit_minutes === undefined ? undefined : Number(row.default_time_limit_minutes),
     targetApp: row.default_target_app === null || row.default_target_app === undefined ? undefined : String(row.default_target_app),
+    source: row.default_source === null || row.default_source === undefined ? "parent" : String(row.default_source),
     tone: String(row.tone),
     repeatRule: String(row.rrule ?? "FREQ=DAILY"),
     scheduledTime: row.default_scheduled_time === null || row.default_scheduled_time === undefined ? "" : String(row.default_scheduled_time),
@@ -2357,6 +2425,7 @@ function mapMission(row: Record<string, unknown>) {
     }),
     timeLimitMinutes: row.time_limit_minutes === null || row.time_limit_minutes === undefined ? undefined : Number(row.time_limit_minutes),
     targetApp: row.target_app === null || row.target_app === undefined ? undefined : String(row.target_app),
+    source: row.source === null || row.source === undefined ? "parent" : String(row.source),
     actualStartAt: row.actual_start_at === null || row.actual_start_at === undefined ? undefined : String(row.actual_start_at),
     actualEndAt: row.actual_end_at === null || row.actual_end_at === undefined ? undefined : String(row.actual_end_at),
     energy: Number(row.energy),
@@ -2600,6 +2669,10 @@ function normalizeConnectionString(value?: string) {
 
 function hashPassword(password: string) {
   return createHash("sha256").update(password).digest("hex");
+}
+
+function familyIdForEmail(email: string) {
+  return `family-${slugify(email)}`;
 }
 
 async function seedDefaultData() {

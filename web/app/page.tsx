@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useId, useMemo, useState } from "react";
 
 type Child = {
   id: string;
@@ -41,6 +41,7 @@ type Mission = {
   repeatRule?: string;
   rewardMinutes?: number;
   scheduledTime?: string;
+  source?: string;
   timeLimitMinutes?: number;
   total?: number;
   status: "done" | "todo" | "in_progress" | "expired";
@@ -64,8 +65,10 @@ type TaskAttachment = {
 
 type Family = {
   id: string;
+  language?: string;
   name: string;
   parent: ParentAccount | null;
+  timeZone?: string;
   children: Child[];
 };
 
@@ -80,6 +83,7 @@ type TaskTemplate = {
   repeatRule: string;
   rewardMinutes: number;
   scheduledTime?: string;
+  source?: string;
   timeLimitMinutes?: number;
   targetApp?: string;
   target: string;
@@ -89,8 +93,9 @@ type TaskTemplate = {
 };
 
 type AuthMode = "login" | "register";
-type AdminView = "tasks" | "templates" | "family" | "rules" | "history";
+type AdminView = "overview" | "tasks" | "templates" | "family" | "rules" | "history";
 type CalendarView = "day" | "week" | "month";
+type TaskLayout = "left" | "split" | "right";
 type Language = "en" | "zh";
 
 type TaskForm = {
@@ -106,6 +111,7 @@ type TaskForm = {
   occurrenceDate: string;
   repeatRule: string;
   scheduledTime: string;
+  source: string;
   target: string;
   targetApp: string;
   timeLimitMinutes: string;
@@ -123,6 +129,7 @@ type TemplateForm = {
   icon: string;
   repeatRule: string;
   scheduledTime: string;
+  source: string;
   target: string;
   targetApp: string;
   timeLimitMinutes: string;
@@ -137,14 +144,25 @@ type RepeatDraft = {
   interval: number;
 };
 
+type TaskFilters = {
+  categories: string[];
+  dateFrom: string;
+  dateTo: string;
+  sources: string[];
+  timeFrom: string;
+  timeTo: string;
+};
+
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 
 const zh: Record<string, string> = {
   account: "账号",
   accountRegistered: "家长账号已注册。",
+  confirmPassword: "确认密码",
   addTask: "新增任务",
   assessmentMethod: "评价方式",
   attachments: "附件",
+  calendar: "日历",
   calendarTasks: "日历任务",
   category: "分类",
   childName: "孩子姓名",
@@ -157,20 +175,29 @@ const zh: Record<string, string> = {
   date: "日期",
   delete: "删除",
   detailedContent: "详细内容",
+  discardTaskEditPrompt: "任务编辑中，放弃修改吗？",
   editTask: "编辑任务",
+  expandEditor: "...",
   family: "家庭",
   goals: "目标清单",
   googleSaved: "Google 登录已保存。",
   history: "历史",
+  imported: "导入",
+  layout: "布局",
+  leftPanel: "左侧",
   login: "登录",
   logout: "退出登录",
   materials: "材料",
   newTemplate: "新模板",
   newTask: "新任务",
   noTasks: "这个视图没有任务",
+  overview: "概览",
   parentAdmin: "家长后台",
   parentName: "家长姓名",
+  parentNameRequired: "家长姓名不能为空。",
   password: "密码",
+  passwordsDoNotMatch: "两次输入的密码不一致。",
+  passwordTooShort: "密码至少需要 8 位。",
   register: "注册",
   repeat: "重复",
   resetTimedTask: "重置限时状态",
@@ -202,11 +229,13 @@ const zh: Record<string, string> = {
   completionRate: "完成率",
   confirmComplete: "确认完成",
   continueGoogle: "继续使用 Google",
+  close: "关闭",
   createFirstTask: "创建第一个任务，包含内容、清单、时间、奖励规则和附件。",
   daily: "每天",
   dateLabel: "日期",
   doesNotRepeat: "不重复",
   familyRoles: "成员和角色",
+  from: "从",
   grade: "年级",
   instructions: "说明",
   noChecklist: "还没有清单。",
@@ -216,16 +245,28 @@ const zh: Record<string, string> = {
   ok: "好",
   open: "未完成",
   parentNotes: "家长备注",
+  parentSource: "家长创建",
   progress: "进度",
   review: "审核",
+  rightPanel: "右侧",
   rewardRules: "奖励与权限",
+  shared: "他人发送",
+  source: "来源",
+  filters: "过滤",
+  clearFilters: "清空过滤",
+  dateRange: "日期段",
+  timeRange: "时间段",
+  to: "到",
+  today: "今天",
   serverUnreachable: "无法连接 API。请先运行 npm run server。",
+  emailInvalid: "请输入正确的邮箱地址。",
   status: "状态",
   taskConfirmed: "任务已确认。",
   taskCreated: "任务已创建。",
   taskDeleted: "任务已删除。",
   timedTaskReset: "限时任务状态已重置。",
   taskUpdated: "任务已更新。",
+  splitView: "分屏",
   weekly: "每周",
   weeklyCustom: "每周自定义",
   workDaily: "每工作日",
@@ -242,6 +283,55 @@ function tr(language: Language, key: string) {
     .replace(/^./, (letter) => letter.toUpperCase());
 }
 
+function validateRegister(account: { confirmPassword: string; email: string; name: string; password: string }, t: (key: string) => string) {
+  if (!account.name.trim()) {
+    return t("parentNameRequired");
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account.email.trim())) {
+    return t("emailInvalid");
+  }
+
+  if (account.password.length < 8) {
+    return t("passwordTooShort");
+  }
+
+  if (account.password !== account.confirmPassword) {
+    return t("passwordsDoNotMatch");
+  }
+
+  return "";
+}
+
+const webSessionKey = "koala.web.parent.session";
+
+function readWebSession() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const value = window.localStorage.getItem(webSessionKey);
+
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value) as { familyId: string };
+  } catch {
+    window.localStorage.removeItem(webSessionKey);
+    return null;
+  }
+}
+
+function saveWebSession(familyId: string) {
+  window.localStorage.setItem(webSessionKey, JSON.stringify({ familyId }));
+}
+
+function clearWebSession() {
+  window.localStorage.removeItem(webSessionKey);
+}
+
 const starterTemplates = [
   { title: "English Reading", category: "Eng", icon: "📘", target: "Read 20 min", energy: "10", tone: "#3F7D58" },
   { title: "Math Practice", category: "Math", icon: "➕", target: "10 questions", energy: "10", tone: "#4B6FA8" },
@@ -256,6 +346,22 @@ const categoryOptions = [
   { label: "娱乐 Game", value: "Game" },
   { label: "其他 Other", value: "Other" }
 ];
+
+const sourceOptions = [
+  { label: "Parent", value: "parent" },
+  { label: "Calendar", value: "calendar" },
+  { label: "Imported", value: "import" },
+  { label: "Shared", value: "shared" }
+];
+
+const emptyFilters: TaskFilters = {
+  categories: [],
+  dateFrom: "",
+  dateTo: "",
+  sources: [],
+  timeFrom: "",
+  timeTo: ""
+};
 
 const weekDayOptions = [
   { code: "SU", label: "日" },
@@ -281,6 +387,7 @@ const emptyTaskForm: TaskForm = {
   occurrenceDate: todayKey(),
   repeatRule: workDailyRepeatRule,
   scheduledTime: "16:00",
+  source: "parent",
   target: "Daily goal",
   targetApp: "",
   timeLimitMinutes: "20",
@@ -298,6 +405,7 @@ const emptyTemplateForm: TemplateForm = {
   icon: "📌",
   repeatRule: workDailyRepeatRule,
   scheduledTime: "16:00",
+  source: "parent",
   target: "Daily goal",
   targetApp: "",
   timeLimitMinutes: "20",
@@ -310,19 +418,20 @@ export default function Page() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [language, setLanguage] = useState<Language>("en");
   const [isSignedIn, setIsSignedIn] = useState(false);
-  const [adminView, setAdminView] = useState<AdminView>("tasks");
+  const [adminView, setAdminView] = useState<AdminView>("overview");
   const [family, setFamily] = useState<Family | null>(null);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
   const [message, setMessage] = useState("");
   const [account, setAccount] = useState({
+    confirmPassword: "",
     email: "parent@example.com",
     name: "Chen",
     password: "secret123"
   });
   const [childForm, setChildForm] = useState({
     grade: "3",
-    name: "Caitlyn",
+    name: "",
     pin: "1234"
   });
   const [taskForm, setTaskForm] = useState<TaskForm>(emptyTaskForm);
@@ -334,14 +443,18 @@ export default function Page() {
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [calendarView, setCalendarView] = useState<CalendarView>("day");
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(todayKey());
+  const [taskLayout, setTaskLayout] = useState<TaskLayout>("split");
+  const [filters, setFilters] = useState<TaskFilters>(emptyFilters);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const t = (key: string) => tr(language, key);
 
   const activeChild = family?.children[0];
-  const selectedMission = missions.find((mission) => mission.id === selectedMissionId) ?? missions[0];
+  const filteredMissions = useMemo(() => applyTaskFilters(missions, filters), [filters, missions]);
   const visibleMissions = useMemo(
-    () => missions.filter((mission) => isMissionInView(mission, calendarAnchorDate, calendarView)),
-    [calendarAnchorDate, calendarView, missions]
+    () => filteredMissions.filter((mission) => missionDateKey(mission) === calendarAnchorDate),
+    [calendarAnchorDate, filteredMissions]
   );
+  const selectedMission = visibleMissions.find((mission) => mission.id === selectedMissionId) ?? visibleMissions[0] ?? filteredMissions[0];
   const completed = missions.filter((mission) => mission.status === "done").length;
   const totalEnergy = missions.reduce((sum, mission) => sum + (mission.status === "done" ? mission.energy : 0), 0);
   const completionRate = missions.length ? Math.round((completed / missions.length) * 100) : 0;
@@ -357,18 +470,23 @@ export default function Page() {
   );
 
   useEffect(() => {
-    void loadFamily();
+    const storedSession = readWebSession();
+
+    if (storedSession) {
+      setIsSignedIn(true);
+      void loadFamily(storedSession.familyId);
+    }
   }, []);
 
   useEffect(() => {
     if (activeChild) {
       void loadChildData(activeChild.id);
     }
-  }, [activeChild?.id, calendarAnchorDate, calendarView]);
+  }, [activeChild?.id, calendarAnchorDate, calendarView, filters.dateFrom, filters.dateTo]);
 
-  async function loadFamily() {
+  async function loadFamily(familyId = family?.id ?? "demo") {
     try {
-      const data = await request<{ family: Family | null }>("/families/demo");
+      const data = await request<{ family: Family | null }>(`/families/${encodeURIComponent(familyId)}`);
       setFamily(data.family);
 
       const child = data.family?.children[0];
@@ -384,7 +502,9 @@ export default function Page() {
   }
 
   async function loadChildData(childId: string) {
-    const { startDate, endDate } = calendarRange(calendarAnchorDate, calendarView);
+    const visibleRange = calendarRange(calendarAnchorDate, calendarView);
+    const startDate = filters.dateFrom && filters.dateFrom < visibleRange.startDate ? filters.dateFrom : visibleRange.startDate;
+    const endDate = filters.dateTo && filters.dateTo > visibleRange.endDate ? filters.dateTo : visibleRange.endDate;
     const missionData = await request<{ missions: Mission[] }>(
       `/families/demo/missions?childId=${childId}&startDate=${startDate}&endDate=${endDate}`
     );
@@ -397,23 +517,49 @@ export default function Page() {
 
   async function submitAuth(event: FormEvent) {
     event.preventDefault();
+    setMessage("");
+
+    if (authMode === "register") {
+      const validationMessage = validateRegister(account, t);
+
+      if (validationMessage) {
+        setMessage(validationMessage);
+        return;
+      }
+    }
 
     const path = authMode === "login" ? "/auth/login/parent" : "/auth/register/parent";
-    const payload = authMode === "login" ? { email: account.email, password: account.password } : account;
+    const payload =
+      authMode === "login"
+        ? { email: account.email, password: account.password }
+        : { email: account.email, name: account.name, password: account.password };
 
-    const data = await request<{ family: Family }>(path, {
-      body: JSON.stringify(payload),
-      method: "POST"
-    });
+    try {
+      const data = await request<{ family: Family; session?: { familyId?: string; token?: string } }>(path, {
+        body: JSON.stringify(payload),
+        method: "POST"
+      });
 
-    setFamily(data.family);
-    setIsSignedIn(true);
-    setMessage(authMode === "login" ? "" : t("accountRegistered"));
-    await loadFamily();
+      setFamily(data.family);
+      setIsSignedIn(true);
+      setMessage(authMode === "login" ? "" : t("accountRegistered"));
+      saveWebSession(data.session?.familyId ?? data.family.id);
+      setAdminView(authMode === "login" && data.family.children.length > 0 ? "overview" : "family");
+
+      const child = data.family.children[0];
+      if (child) {
+        await loadChildData(child.id);
+      } else {
+        setMissions([]);
+        setTemplates([]);
+      }
+    } catch (error) {
+      setMessage(readableRequestError(error, t));
+    }
   }
 
   async function googleLogin() {
-    const data = await request<{ family: Family }>("/auth/google/parent", {
+    const data = await request<{ family: Family; session?: { familyId?: string; token?: string } }>("/auth/google/parent", {
       body: JSON.stringify({
         email: account.email,
         idToken: "web-admin-google-demo",
@@ -425,12 +571,19 @@ export default function Page() {
     setFamily(data.family);
     setIsSignedIn(true);
     setMessage(t("googleSaved"));
-    await loadFamily();
+    saveWebSession(data.session?.familyId ?? data.family.id);
+    await loadFamily(data.session?.familyId ?? data.family.id);
   }
 
   async function createChild(event: FormEvent) {
     event.preventDefault();
-    await request("/families/demo/children", {
+
+    if (!family) {
+      setMessage(t("childRequired"));
+      return;
+    }
+
+    await request(`/families/${encodeURIComponent(family.id)}/children`, {
       body: JSON.stringify({
         grade: Number(childForm.grade),
         name: childForm.name,
@@ -439,7 +592,7 @@ export default function Page() {
       method: "POST"
     });
     setMessage(t("childProfileCreated"));
-    await loadFamily();
+    await loadFamily(family.id);
   }
 
   async function submitTask(event: FormEvent) {
@@ -464,6 +617,7 @@ export default function Page() {
       repeatRule: taskForm.repeatRule,
       rewardMinutes: Number(taskForm.energy),
       scheduledTime: taskForm.scheduledTime,
+      source: taskForm.source,
       status: "todo",
       target: taskForm.target,
       targetApp: normalizeTargetApps(taskForm.targetApp) || undefined,
@@ -577,7 +731,7 @@ export default function Page() {
   }
 
   function startNewTask() {
-    setTaskForm(emptyTaskForm);
+    setTaskForm({ ...emptyTaskForm, occurrenceDate: calendarAnchorDate });
     setEditingMissionId(null);
     setShowTaskForm(true);
     setAdminView("tasks");
@@ -590,31 +744,83 @@ export default function Page() {
   }
 
   function startEditTask(mission: Mission) {
+    const structuredMaterials = (mission.planDetail?.materials ?? []).join(", ");
+    const structuredNotes = mission.planDetail?.notes ?? "";
+    const structuredVocabulary = (mission.planDetail?.vocabulary ?? []).join(", ");
+    const detailParts = splitTaskDetail(mission.detail ?? "", {
+      assessment: emptyTaskForm.assessment,
+      materials: structuredMaterials,
+      notes: structuredNotes,
+      vocabulary: structuredVocabulary
+    });
+
     setTaskForm({
       ...emptyTaskForm,
+      assessment: detailParts.assessment,
       attachments: mission.planDetail?.attachments ?? [],
       category: normalizeCategory(mission.category),
-      detail: mission.detail ?? "",
+      detail: detailParts.detail,
       energy: String(mission.energy),
       goals: (mission.goals ?? []).join("\n"),
       icon: mission.icon ?? "📌",
-      materials: (mission.planDetail?.materials ?? []).join(", "),
-      notes: mission.planDetail?.notes ?? "",
+      materials: detailParts.materials,
+      notes: detailParts.notes,
       occurrenceDate: mission.occurrenceDate?.slice(0, 10) ?? todayKey(),
       repeatRule: mission.repeatRule ?? "FREQ=DAILY",
       scheduledTime: mission.scheduledTime ?? "16:00",
+      source: mission.source ?? "parent",
       target: mission.target,
       targetApp: mission.targetApp ?? "",
       timeLimitMinutes: mission.timeLimitMinutes ? String(mission.timeLimitMinutes) : "",
       title: mission.title,
       tone: mission.tone ?? "#3F7D58",
       total: String(mission.total ?? 1),
-      vocabulary: (mission.planDetail?.vocabulary ?? []).join(", ")
+      vocabulary: detailParts.vocabulary
     });
     setEditingMissionId(mission.id);
     setSelectedMissionId(mission.id);
     setShowTaskForm(true);
     setAdminView("tasks");
+  }
+
+  function shouldLeaveTaskEdit(nextMissionId?: string) {
+    if (!showTaskForm || !editingMissionId || nextMissionId === editingMissionId) {
+      return true;
+    }
+
+    return window.confirm(t("discardTaskEditPrompt"));
+  }
+
+  function leaveTaskEdit() {
+    setEditingMissionId(null);
+    setShowTaskForm(false);
+  }
+
+  function selectMissionSafely(missionId: string) {
+    if (!shouldLeaveTaskEdit(missionId)) {
+      return;
+    }
+
+    if (showTaskForm && editingMissionId && missionId !== editingMissionId) {
+      leaveTaskEdit();
+    }
+
+    setSelectedMissionId(missionId);
+  }
+
+  function selectDateSafely(date: string) {
+    if (date !== calendarAnchorDate && !shouldLeaveTaskEdit()) {
+      return false;
+    }
+
+    if (date !== calendarAnchorDate && showTaskForm && editingMissionId) {
+      leaveTaskEdit();
+    }
+
+    setCalendarAnchorDate(date);
+    setTaskForm((current) => ({ ...current, occurrenceDate: date }));
+    setSelectedMissionId(filteredMissions.find((mission) => missionDateKey(mission) === date)?.id ?? null);
+    return true;
   }
 
   function startEditTemplate(template: TaskTemplate) {
@@ -626,8 +832,12 @@ export default function Page() {
 
   function logout() {
     setIsSignedIn(false);
-    setAdminView("tasks");
+    setFamily(null);
+    setMissions([]);
+    setTemplates([]);
+    setAdminView("overview");
     setMessage("");
+    clearWebSession();
   }
 
   function selectAuthMode(mode: AuthMode) {
@@ -675,6 +885,12 @@ export default function Page() {
               {t("password")}
               <input type="password" value={account.password} onChange={(event) => setAccount({ ...account, password: event.target.value })} />
             </label>
+            {authMode === "register" ? (
+              <label>
+                {t("confirmPassword")}
+                <input type="password" value={account.confirmPassword} onChange={(event) => setAccount({ ...account, confirmPassword: event.target.value })} />
+              </label>
+            ) : null}
             <button type="submit">{authMode === "login" ? t("login") : t("createAccount")}</button>
             <button className="secondary" type="button" onClick={googleLogin}>{t("continueGoogle")}</button>
             {message ? <p className="message inline">{message}</p> : null}
@@ -693,6 +909,7 @@ export default function Page() {
         </div>
         <nav className="topNav">
           {[
+            ["overview", t("overview")],
             ["tasks", t("tasks")],
             ["templates", t("templates")],
             ["history", t("history")]
@@ -722,18 +939,23 @@ export default function Page() {
 
       {message ? <p className="message toast">{message}</p> : null}
 
-      <section className="metrics">
-        {metrics.map(([label, value]) => (
-          <article key={label}>
-            <span>{label}</span>
-            <strong>{value}</strong>
-          </article>
-        ))}
-      </section>
+      {adminView === "overview" ? (
+        <OverviewPage
+          activeChild={activeChild}
+          family={family}
+          metrics={metrics}
+          missions={missions}
+          onAddChild={() => setAdminView("family")}
+          onNewTask={startNewTask}
+          onOpenTasks={() => setAdminView("tasks")}
+          t={t}
+        />
+      ) : null}
 
       {adminView === "tasks" ? (
-        <section className="taskWorkspace">
-          <div className="panel">
+        <section className={`taskWorkspace ${taskLayout}`}>
+          {taskLayout !== "right" ? (
+          <div className="panel taskPrimaryPanel">
             <div className="sectionHead">
               <div>
                 <p className="kicker">{t("calendarTasks")}</p>
@@ -749,7 +971,17 @@ export default function Page() {
                   </button>
                 ))}
               </div>
-              <input type="date" value={calendarAnchorDate} onChange={(event) => setCalendarAnchorDate(event.target.value)} />
+              <input
+                type="date"
+                value={calendarAnchorDate}
+                onChange={(event) => {
+                  setCalendarAnchorDate(event.target.value);
+                  setTaskForm((current) => ({ ...current, occurrenceDate: event.target.value }));
+                }}
+              />
+              <button className="secondary" type="button" onClick={() => setIsFilterOpen(true)}>
+                {t("filters")}{activeFilterCount(filters) ? ` (${activeFilterCount(filters)})` : ""}
+              </button>
             </div>
             <div className="templateRow">
               {starterTemplates.map((template) => (
@@ -758,7 +990,7 @@ export default function Page() {
                   className="chip"
                   type="button"
                   onClick={() => {
-                    setTaskForm((current) => ({ ...current, ...template, attachments: [], detail: `${template.target} every day.` }));
+                    setTaskForm((current) => ({ ...current, ...template, attachments: [], detail: `${template.target} every day.`, occurrenceDate: calendarAnchorDate }));
                     setEditingMissionId(null);
                     setShowTaskForm(true);
                   }}
@@ -769,22 +1001,25 @@ export default function Page() {
             </div>
             <CalendarBoard
               anchorDate={calendarAnchorDate}
-              missions={missions}
+              missions={filteredMissions}
               selectedMissionId={selectedMission?.id}
+              selectedDate={calendarAnchorDate}
+              t={t}
               view={calendarView}
-              onSelect={setSelectedMissionId}
+              onDateSelect={selectDateSafely}
+              onSelect={selectMissionSafely}
             />
             <div className="taskList">
               {visibleMissions.map((mission) => (
                 <article
                   key={mission.id}
                   className={selectedMission?.id === mission.id ? "selected" : ""}
-                  onClick={() => setSelectedMissionId(mission.id)}
+                  onClick={() => selectMissionSafely(mission.id)}
                 >
                   <div className="taskIcon" style={{ background: mission.tone ?? "#3F7D58" }}>{mission.icon}</div>
                   <div>
                     <strong>{mission.title}</strong>
-                    <span>{formatMissionTime(mission)} · {formatCategory(mission.category)} · {mission.target}</span>
+                    <span>{formatMissionTime(mission)} · {formatCategory(mission.category)} · {formatSource(mission.source, t)} · {mission.target}</span>
                     <p>{mission.detail ?? mission.target}</p>
                   </div>
                   <span className={`status ${mission.status}`}>{mission.status}</span>
@@ -798,7 +1033,11 @@ export default function Page() {
               ) : null}
             </div>
           </div>
+          ) : null}
 
+          <LayoutRail layout={taskLayout} onChange={setTaskLayout} t={t} />
+
+          {taskLayout !== "left" ? (
           <aside className="panel detailPanel">
             {showTaskForm ? (
               <TaskFormView
@@ -823,6 +1062,16 @@ export default function Page() {
               </div>
             )}
           </aside>
+          ) : null}
+          {isFilterOpen ? (
+            <TaskFilterDialog
+              filters={filters}
+              t={t}
+              onChange={setFilters}
+              onClose={() => setIsFilterOpen(false)}
+              onReset={() => setFilters(emptyFilters)}
+            />
+          ) : null}
         </section>
       ) : null}
 
@@ -952,6 +1201,199 @@ export default function Page() {
   );
 }
 
+function OverviewPage({
+  activeChild,
+  family,
+  metrics,
+  missions,
+  onAddChild,
+  onNewTask,
+  onOpenTasks,
+  t
+}: {
+  activeChild?: Child;
+  family: Family | null;
+  metrics: string[][];
+  missions: Mission[];
+  onAddChild: () => void;
+  onNewTask: () => void;
+  onOpenTasks: () => void;
+  t: (key: string) => string;
+}) {
+  const today = todayKey();
+  const todayMissions = missions.filter((mission) => missionDateKey(mission) === today);
+  const openMissions = missions.filter((mission) => mission.status !== "done");
+  const doneMissions = missions.filter((mission) => mission.status === "done");
+  const sourceRows = sourceOptions.map((option) => ({
+    count: missions.filter((mission) => (mission.source ?? "parent") === option.value).length,
+    label: formatSource(option.value, t),
+    value: option.value
+  })).filter((row) => row.count > 0);
+  const categoryRows = categoryOptions.map((option) => ({
+    count: missions.filter((mission) => normalizeCategory(mission.category) === option.value).length,
+    label: option.label,
+    value: option.value
+  })).filter((row) => row.count > 0);
+
+  return (
+    <section className="overviewPage">
+      <div className="overviewHero">
+        <div>
+          <p className="kicker">{t("overview")}</p>
+          <h2>{family?.name ?? "Koala Family"}</h2>
+          <p>{activeChild ? `${activeChild.name} · Grade ${activeChild.grade}` : t("childRequired")}</p>
+        </div>
+        <div className="actionRow">
+          <button type="button" onClick={onNewTask}>{t("newTask")}</button>
+          <button className="secondary" type="button" onClick={activeChild ? onOpenTasks : onAddChild}>
+            {activeChild ? t("tasks") : t("createChild")}
+          </button>
+        </div>
+      </div>
+
+      <section className="metrics">
+        {metrics.map(([label, value]) => (
+          <article key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </article>
+        ))}
+      </section>
+
+      <div className="overviewGrid">
+        <div className="panel overviewTaskPanel">
+          <div className="sectionHead">
+            <div>
+              <p className="kicker">{t("today")}</p>
+              <h2>{t("taskList")}</h2>
+            </div>
+            <button className="secondary" type="button" onClick={onOpenTasks}>{t("tasks")}</button>
+          </div>
+          <div className="overviewTaskList">
+            {(todayMissions.length ? todayMissions : openMissions.slice(0, 5)).map((mission) => (
+              <article key={`overview-${mission.id}`}>
+                <div className="taskIcon" style={{ background: mission.tone ?? "#3F7D58" }}>{mission.icon}</div>
+                <div>
+                  <strong>{mission.title}</strong>
+                  <span>{formatMissionTime(mission)} · {formatCategory(mission.category)} · {formatSource(mission.source, t)}</span>
+                </div>
+                <span className={`status ${mission.status}`}>{mission.status}</span>
+              </article>
+            ))}
+            {!missions.length ? (
+              <div className="emptySlot">
+                <strong>{t("noTasks")}</strong>
+                <span>{t("createFirstTask")}</span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <aside className="overviewSide">
+          <div className="panel progressCard">
+            <span>{t("completionRate")}</span>
+            <strong>{missions.length ? Math.round((doneMissions.length / missions.length) * 100) : 0}%</strong>
+            <div><i style={{ width: `${missions.length ? Math.round((doneMissions.length / missions.length) * 100) : 0}%` }} /></div>
+          </div>
+          <div className="panel overviewBreakdown">
+            <p className="kicker">{t("source")}</p>
+            {(sourceRows.length ? sourceRows : [{ count: 0, label: formatSource("parent", t), value: "parent" }]).map((row) => (
+              <div key={row.value}>
+                <span>{row.label}</span>
+                <strong>{row.count}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="panel overviewBreakdown">
+            <p className="kicker">{t("category")}</p>
+            {(categoryRows.length ? categoryRows : [{ count: 0, label: t("tasks"), value: "empty" }]).map((row) => (
+              <div key={row.value}>
+                <span>{row.label}</span>
+                <strong>{row.count}</strong>
+              </div>
+            ))}
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function LayoutRail({ layout, onChange, t }: { layout: TaskLayout; onChange: (layout: TaskLayout) => void; t: (key: string) => string }) {
+  const options: Array<{ label: string; title: string; value: TaskLayout }> = [
+    { label: "‹", title: t("leftPanel"), value: "left" },
+    { label: "Ⅱ", title: t("splitView"), value: "split" },
+    { label: "›", title: t("rightPanel"), value: "right" }
+  ];
+
+  return (
+    <div className="layoutRail" aria-label={t("layout")}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          aria-label={option.title}
+          className={layout === option.value ? "active" : ""}
+          title={option.title}
+          type="button"
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ExpandableTextarea({
+  label,
+  onChange,
+  t,
+  value
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  t: (key: string) => string;
+  value: string;
+}) {
+  const textareaId = useId();
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="textareaField wide">
+      <div className="fieldHeader">
+        <label htmlFor={textareaId}>{label}</label>
+        <button aria-label={t("expandEditor")} className="miniButton" title={t("expandEditor")} type="button" onClick={() => setIsExpanded(true)}>⤢</button>
+      </div>
+      <textarea id={textareaId} value={value} onChange={(event) => onChange(event.target.value)} />
+      {isExpanded ? (
+        <div
+          className="modalBackdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsExpanded(false);
+            }
+          }}
+        >
+          <section aria-label={label} aria-modal="true" className="largeTextDialog" role="dialog">
+            <div className="sectionHead">
+              <div>
+                <p className="kicker">{t("expandEditor")}</p>
+                <h2>{label}</h2>
+              </div>
+              <button className="secondary" type="button" onClick={() => setIsExpanded(false)}>{t("close")}</button>
+            </div>
+            <textarea autoFocus className="largeTextArea" value={value} onChange={(event) => onChange(event.target.value)} />
+            <div className="actionRow">
+              <button type="button" onClick={() => setIsExpanded(false)}>{t("ok")}</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function TaskFormView({
   editing,
   form,
@@ -996,14 +1438,15 @@ function TaskFormView({
         <label>{t("totalSteps")}<input type="number" min="1" value={form.total} onChange={(event) => onChange({ ...form, total: event.target.value })} /></label>
         <label>{t("date")}<input type="date" value={form.occurrenceDate} onChange={(event) => onChange({ ...form, occurrenceDate: event.target.value })} /></label>
         <label>{t("time")}<input type="time" value={form.scheduledTime} onChange={(event) => onChange({ ...form, scheduledTime: event.target.value })} /></label>
+        <label>{t("source")}<SourceSelect t={t} value={form.source} onChange={(source) => onChange({ ...form, source })} /></label>
         <label>{t("timeLimit")}<input type="number" min="1" value={form.timeLimitMinutes} onChange={(event) => onChange({ ...form, timeLimitMinutes: event.target.value })} /></label>
         <RepeatRuleEditor value={form.repeatRule} onChange={(repeatRule) => onChange({ ...form, repeatRule })} t={t} />
-        <label className="wide">{t("detailedContent")}<textarea value={form.detail} onChange={(event) => onChange({ ...form, detail: event.target.value })} /></label>
-        <label className="wide">{t("goals")}<textarea value={form.goals} onChange={(event) => onChange({ ...form, goals: event.target.value })} /></label>
+        <ExpandableTextarea label={t("detailedContent")} t={t} value={form.detail} onChange={(detail) => onChange({ ...form, detail })} />
+        <ExpandableTextarea label={t("goals")} t={t} value={form.goals} onChange={(goals) => onChange({ ...form, goals })} />
         <label>{t("materials")}<input value={form.materials} onChange={(event) => onChange({ ...form, materials: event.target.value })} /></label>
         <label>{t("vocabulary")}<input value={form.vocabulary} onChange={(event) => onChange({ ...form, vocabulary: event.target.value })} /></label>
         <label className="wide">{t("assessmentMethod")}<input value={form.assessment} onChange={(event) => onChange({ ...form, assessment: event.target.value })} /></label>
-        <label className="wide">{t("parentNotes")}<textarea value={form.notes} onChange={(event) => onChange({ ...form, notes: event.target.value })} /></label>
+        <ExpandableTextarea label={t("parentNotes")} t={t} value={form.notes} onChange={(notes) => onChange({ ...form, notes })} />
         <label className="wide fileInput">
           {t("uploadFile")}
           <input multiple type="file" onChange={(event) => void attachFiles(event.currentTarget.files, form, onChange)} />
@@ -1033,6 +1476,89 @@ function TaskFormView({
   );
 }
 
+function TaskFilterDialog({
+  filters,
+  onChange,
+  onClose,
+  onReset,
+  t
+}: {
+  filters: TaskFilters;
+  onChange: (filters: TaskFilters) => void;
+  onClose: () => void;
+  onReset: () => void;
+  t: (key: string) => string;
+}) {
+  return (
+    <div className="modalBackdrop" role="presentation">
+      <section aria-label={t("filters")} className="filterDialog" role="dialog">
+        <div className="sectionHead">
+          <div>
+            <p className="kicker">{t("calendarTasks")}</p>
+            <h2>{t("filters")}</h2>
+          </div>
+          <button className="secondary" type="button" onClick={onClose}>{t("close")}</button>
+        </div>
+        <div className="formGrid compact">
+          <label>{t("dateRange")} {t("from")}<input type="date" value={filters.dateFrom} onChange={(event) => onChange({ ...filters, dateFrom: event.target.value })} /></label>
+          <label>{t("dateRange")} {t("to")}<input type="date" value={filters.dateTo} onChange={(event) => onChange({ ...filters, dateTo: event.target.value })} /></label>
+          <label>{t("timeRange")} {t("from")}<input type="time" value={filters.timeFrom} onChange={(event) => onChange({ ...filters, timeFrom: event.target.value })} /></label>
+          <label>{t("timeRange")} {t("to")}<input type="time" value={filters.timeTo} onChange={(event) => onChange({ ...filters, timeTo: event.target.value })} /></label>
+        </div>
+        <MultiSelectGroup
+          label={t("category")}
+          options={categoryOptions}
+          values={filters.categories}
+          onChange={(categories) => onChange({ ...filters, categories })}
+        />
+        <MultiSelectGroup
+          label={t("source")}
+          options={sourceOptions.map((option) => ({ ...option, label: formatSource(option.value, t) }))}
+          values={filters.sources}
+          onChange={(sources) => onChange({ ...filters, sources })}
+        />
+        <div className="actionRow">
+          <button className="secondary" type="button" onClick={onReset}>{t("clearFilters")}</button>
+          <button type="button" onClick={onClose}>{t("ok")}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MultiSelectGroup({
+  label,
+  onChange,
+  options,
+  values
+}: {
+  label: string;
+  onChange: (values: string[]) => void;
+  options: Array<{ label: string; value: string }>;
+  values: string[];
+}) {
+  return (
+    <fieldset className="multiSelectGroup">
+      <legend>{label}</legend>
+      <div>
+        {options.map((option) => {
+          const checked = values.includes(option.value);
+          return (
+            <label key={option.value} className={checked ? "active" : ""}>
+              <input
+                checked={checked}
+                type="checkbox"
+                onChange={() => onChange(checked ? values.filter((value) => value !== option.value) : [...values, option.value])}
+              />
+              {option.label}
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 function CategorySelect({ onChange, value }: { onChange: (value: string) => void; value: string }) {
   const normalizedValue = categoryOptions.some((option) => option.value === value) ? value : "other";
 
@@ -1040,6 +1566,16 @@ function CategorySelect({ onChange, value }: { onChange: (value: string) => void
     <select value={normalizedValue} onChange={(event) => onChange(event.target.value)}>
       {categoryOptions.map((option) => (
         <option key={option.value} value={option.value}>{option.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function SourceSelect({ onChange, t, value }: { onChange: (value: string) => void; t: (key: string) => string; value: string }) {
+  return (
+    <select value={value || "parent"} onChange={(event) => onChange(event.target.value)}>
+      {sourceOptions.map((option) => (
+        <option key={option.value} value={option.value}>{formatSource(option.value, t)}</option>
       ))}
     </select>
   );
@@ -1135,7 +1671,7 @@ function TemplateFormView({
               onCommit={onRepeatCommit}
               t={t}
             />
-            <label className="wide">{t("goals")}<textarea value={form.goals} onChange={(event) => onChange({ ...form, goals: event.target.value })} /></label>
+            <ExpandableTextarea label={t("goals")} t={t} value={form.goals} onChange={(goals) => onChange({ ...form, goals })} />
             <label className="checkboxLine">
               <input checked={form.active} type="checkbox" onChange={(event) => onChange({ ...form, active: event.target.checked })} />
               {t("status")}
@@ -1159,7 +1695,7 @@ function AccountMenu({
   onLogout,
   onNavigate
 }: {
-  account: { email: string; name: string; password: string };
+  account: { confirmPassword: string; email: string; name: string; password: string };
   family: Family | null;
   isSignedIn: boolean;
   language: Language;
@@ -1393,6 +1929,7 @@ function TaskDetail({
       <dl className="detailGrid">
         <div><dt>{t("dateLabel")}</dt><dd>{formatDate(mission.occurrenceDate, t)}</dd></div>
         <div><dt>{t("time")}</dt><dd>{mission.scheduledTime || t("anyTime")}</dd></div>
+        <div><dt>{t("source")}</dt><dd>{formatSource(mission.source, t)}</dd></div>
         <div><dt>{t("timeLimit")}</dt><dd>{mission.timeLimitMinutes ? `${mission.timeLimitMinutes} min` : t("anyTime")}</dd></div>
         <div><dt>{t("targetApp")}</dt><dd>{mission.targetApp || t("anyTime")}</dd></div>
         <div><dt>{t("repeat")}</dt><dd>{formatRepeatRule(mission.repeatRule, t)}</dd></div>
@@ -1413,14 +1950,20 @@ function TaskDetail({
 function CalendarBoard({
   anchorDate,
   missions,
+  onDateSelect,
   onSelect,
+  selectedDate,
   selectedMissionId,
+  t,
   view
 }: {
   anchorDate: string;
   missions: Mission[];
+  onDateSelect: (date: string) => boolean;
   onSelect: (missionId: string) => void;
+  selectedDate: string;
   selectedMissionId?: string;
+  t: (key: string) => string;
   view: CalendarView;
 }) {
   const days = view === "day" ? [anchorDate] : view === "week" ? weekDays(anchorDate) : monthDays(anchorDate);
@@ -1431,7 +1974,13 @@ function CalendarBoard({
         const dayMissions = missions.filter((mission) => missionDateKey(mission) === date);
 
         return (
-          <article key={date} className={date === todayKey() ? "today" : ""}>
+          <article
+            key={date}
+            className={[date === todayKey() ? "today" : "", date === selectedDate ? "selectedDate" : ""].filter(Boolean).join(" ")}
+            onClick={() => {
+              onDateSelect(date);
+            }}
+          >
             <header>
               <strong>{shortDateLabel(date)}</strong>
               <span>{dayMissions.length}</span>
@@ -1443,10 +1992,17 @@ function CalendarBoard({
                   className={selectedMissionId === mission.id ? "selected" : ""}
                   style={{ borderLeftColor: mission.tone ?? "#3F7D58" }}
                   type="button"
-                  onClick={() => onSelect(mission.id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (!onDateSelect(date)) {
+                      return;
+                    }
+                    onSelect(mission.id);
+                  }}
                 >
                   <span>{mission.scheduledTime || "Any time"}</span>
                   <strong>{mission.title}</strong>
+                  <em>{formatSource(mission.source, t)}</em>
                 </button>
               ))}
             </div>
@@ -1459,12 +2015,81 @@ function CalendarBoard({
 
 function buildTaskDetail(form: TaskForm) {
   return [
-    form.detail,
-    `Materials: ${form.materials}`,
-    `Vocabulary: ${form.vocabulary}`,
-    `Assessment: ${form.assessment}`,
-    `Parent notes: ${form.notes}`
+    form.detail.trim(),
+    labeledTaskDetail("Materials", form.materials),
+    labeledTaskDetail("Vocabulary", form.vocabulary),
+    labeledTaskDetail("Assessment", form.assessment),
+    labeledTaskDetail("Parent notes", form.notes)
   ].filter(Boolean).join("\n\n");
+}
+
+function labeledTaskDetail(label: string, value: string) {
+  const trimmed = value.trim();
+  return trimmed ? `${label}: ${trimmed}` : "";
+}
+
+type SplitTaskDetailParts = Pick<TaskForm, "assessment" | "detail" | "materials" | "notes" | "vocabulary">;
+
+const taskDetailSectionPattern = /(?:^|\n)[ \t]*(Materials|Vocabulary|Assessment|Parent notes):[ \t]*/gi;
+
+function splitTaskDetail(detail: string, fallback: Partial<Omit<SplitTaskDetailParts, "detail">> = {}): SplitTaskDetailParts {
+  const parts: SplitTaskDetailParts = {
+    assessment: "",
+    detail: detail.trim(),
+    materials: "",
+    notes: "",
+    vocabulary: ""
+  };
+  const matches: RegExpExecArray[] = [];
+  taskDetailSectionPattern.lastIndex = 0;
+  let match = taskDetailSectionPattern.exec(detail);
+
+  while (match) {
+    matches.push(match);
+    match = taskDetailSectionPattern.exec(detail);
+  }
+
+  if (!matches.length) {
+    parts.assessment = fallback.assessment ?? "";
+    parts.materials = fallback.materials ?? "";
+    parts.notes = fallback.notes ?? "";
+    parts.vocabulary = fallback.vocabulary ?? "";
+    return parts;
+  }
+
+  const firstSectionIndex = matches[0].index ?? 0;
+  parts.detail = detail.slice(0, firstSectionIndex).trim();
+
+  matches.forEach((match, index) => {
+    const key = match[1].toLowerCase();
+    const sectionStart = (match.index ?? 0) + match[0].length;
+    const nextSectionStart = index + 1 < matches.length ? matches[index + 1].index ?? detail.length : detail.length;
+    const content = detail.slice(sectionStart, nextSectionStart).trim();
+
+    if (!content) {
+      return;
+    }
+
+    if (key === "materials" && !parts.materials) {
+      parts.materials = content;
+    }
+    if (key === "vocabulary" && !parts.vocabulary) {
+      parts.vocabulary = content;
+    }
+    if (key === "assessment" && !parts.assessment) {
+      parts.assessment = content;
+    }
+    if (key === "parent notes" && !parts.notes) {
+      parts.notes = content;
+    }
+  });
+
+  parts.assessment = parts.assessment || fallback.assessment || "";
+  parts.materials = parts.materials || fallback.materials || "";
+  parts.notes = parts.notes || fallback.notes || "";
+  parts.vocabulary = parts.vocabulary || fallback.vocabulary || "";
+
+  return parts;
 }
 
 function templatePayload(childId: string, form: TemplateForm) {
@@ -1478,6 +2103,7 @@ function templatePayload(childId: string, form: TemplateForm) {
     repeatRule: form.repeatRule,
     rewardMinutes: Number(form.energy),
     scheduledTime: form.scheduledTime,
+    source: form.source,
     target: form.target,
     targetApp: normalizeTargetApps(form.targetApp) || undefined,
     timeLimitMinutes: form.timeLimitMinutes ? Number(form.timeLimitMinutes) : undefined,
@@ -1532,6 +2158,65 @@ function formatCategory(value: string) {
   return categoryOptions.find((option) => option.value === category)?.label ?? "其他";
 }
 
+function formatSource(value: string | undefined, t: (key: string) => string) {
+  switch (value) {
+    case "calendar":
+      return t("calendar");
+    case "import":
+      return t("imported");
+    case "shared":
+      return t("shared");
+    default:
+      return t("parentSource");
+  }
+}
+
+function activeFilterCount(filters: TaskFilters) {
+  return [
+    filters.dateFrom,
+    filters.dateTo,
+    filters.timeFrom,
+    filters.timeTo,
+    ...filters.categories,
+    ...filters.sources
+  ].filter(Boolean).length;
+}
+
+function applyTaskFilters(missions: Mission[], filters: TaskFilters) {
+  return missions.filter((mission) => {
+    const date = missionDateKey(mission);
+    const time = mission.scheduledTime ?? "";
+    const category = normalizeCategory(mission.category);
+    const source = mission.source ?? "parent";
+
+    if (filters.dateFrom && date < filters.dateFrom) {
+      return false;
+    }
+
+    if (filters.dateTo && date > filters.dateTo) {
+      return false;
+    }
+
+    if (filters.timeFrom && (!time || time < filters.timeFrom)) {
+      return false;
+    }
+
+    if (filters.timeTo && (!time || time > filters.timeTo)) {
+      return false;
+    }
+
+    if (filters.categories.length > 0 && !filters.categories.includes(category)) {
+      return false;
+    }
+
+    if (filters.sources.length > 0 && !filters.sources.includes(source)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 function templateToForm(template: TaskTemplate): TemplateForm {
   return {
     active: template.active,
@@ -1541,6 +2226,7 @@ function templateToForm(template: TaskTemplate): TemplateForm {
     icon: template.icon,
     repeatRule: template.repeatRule,
     scheduledTime: template.scheduledTime ?? "",
+    source: template.source ?? "parent",
     target: template.target,
     targetApp: template.targetApp ?? "",
     timeLimitMinutes: template.timeLimitMinutes ? String(template.timeLimitMinutes) : "",
@@ -1775,8 +2461,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    let message = `Request failed: ${response.status}`;
+
+    try {
+      const data = (await response.json()) as { error?: string; issues?: Array<{ field?: string; message?: string }> };
+      const issue = data.issues?.[0];
+      message = issue ? `${issue.field ? `${issue.field}: ` : ""}${issue.message ?? data.error ?? message}` : data.error ?? message;
+    } catch {
+      // Keep the generic HTTP error when the response is not JSON.
+    }
+
+    throw new Error(message);
   }
 
   return response.json() as Promise<T>;
+}
+
+function readableRequestError(error: unknown, t: (key: string) => string) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return t("serverUnreachable");
 }

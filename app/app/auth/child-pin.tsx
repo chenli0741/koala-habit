@@ -67,9 +67,12 @@ export default function ChildPinScreen() {
             keyboardType="number-pad"
             maxLength={6}
             onChangeText={(value) => setPin(value.replace(/\D/g, ""))}
+            onSubmitEditing={handleUnlock}
             placeholder="1234"
+            returnKeyType="done"
             secureTextEntry
             style={styles.pinInput}
+            submitBehavior="submit"
             value={pin}
           />
         </View>

@@ -28,6 +28,7 @@ import {
   resumeTaskRun,
   startTaskRun,
   updateMission,
+  updateFamily,
   updateTaskTemplate,
   upsertFamilyWithParent
 } from "./db.js";
@@ -57,6 +58,8 @@ app.onError((error, c) => {
 const family = {
   id: "family-demo",
   name: "Koala Family",
+  timeZone: "America/Los_Angeles",
+  language: "English",
   parent: {
     id: "parent-demo",
     name: "Chen",
@@ -78,6 +81,7 @@ const family = {
     }
   ]
 };
+const demoFamilies = new Map<string, typeof family>([[family.id, family]]);
 
 type DemoMission = MissionInput & {
   actualEndAt?: string;
@@ -210,7 +214,7 @@ const parentGoogleSchema = z.object({
 const parentRegisterSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1),
-  password: z.string().min(6)
+  password: z.string().min(8)
 });
 
 const parentLoginSchema = z.object({
@@ -218,10 +222,17 @@ const parentLoginSchema = z.object({
   password: z.string().min(6)
 });
 
+const createFamilySchema = z.object({
+  language: z.string().min(1).default("English"),
+  name: z.string().min(1),
+  timeZone: z.string().min(1).default("America/Los_Angeles")
+});
+
 const createChildSchema = z.object({
   name: z.string().min(1),
-  grade: z.number().int().min(1).max(6),
-  pin: z.string().regex(/^\d{4,6}$/)
+  age: z.number().int().min(0).max(18).default(0),
+  grade: z.number().int().min(0).max(12).default(0),
+  pin: z.string().regex(/^\d{4,6}$/).default("1234")
 });
 
 const childLoginSchema = z.object({
@@ -253,6 +264,7 @@ const createMissionSchema = z.object({
   energy: z.number().int().default(10),
   progress: z.number().int().min(0).default(0),
   scheduledTime: z.string().optional(),
+  source: z.string().min(1).default("parent"),
   timeLimitMinutes: z.number().int().min(1).optional(),
   total: z.number().int().min(1).default(1),
   tone: z.string().min(1).default("#3F7D58"),
@@ -272,6 +284,7 @@ const taskTemplateSchema = z.object({
   rewardMinutes: z.number().int().default(10),
   energy: z.number().int().default(10),
   scheduledTime: z.string().optional(),
+  source: z.string().min(1).default("parent"),
   timeLimitMinutes: z.number().int().min(1).optional(),
   total: z.number().int().min(1).default(1),
   tone: z.string().min(1).default("#3F7D58")
@@ -291,6 +304,7 @@ const completeMissionSchema = z.object({
 });
 
 const timerEventSchema = z.object({
+  elapsedSeconds: z.number().int().min(0).optional(),
   eventType: z.enum(["timer_start", "timer_pause", "timer_resume", "timer_end"]),
   remainingSeconds: z.number().int().min(0).optional()
 });
@@ -405,6 +419,7 @@ app.post("/auth/google/parent", async (c) => {
 
 app.post("/auth/register/parent", async (c) => {
   const payload = parentRegisterSchema.parse(await c.req.json());
+  const familyId = `family-${payload.email.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || Date.now()}`;
 
   if (dbEnabled) {
     const dbFamily = await registerParent({
@@ -419,7 +434,8 @@ app.post("/auth/register/parent", async (c) => {
         session: {
           token: "demo-parent-password-session",
           role: "parent",
-          provider: "password"
+          provider: "password",
+          familyId: dbFamily?.id
         },
         family: dbFamily
       },
@@ -432,17 +448,26 @@ app.post("/auth/register/parent", async (c) => {
       session: {
         token: "demo-parent-password-session",
         role: "parent",
-        provider: "password"
+        provider: "password",
+        familyId
       },
-      family: {
+      family: (() => {
+        const nextFamily = {
         ...family,
+        id: familyId,
+        name: `${payload.name}'s Family`,
+        children: [],
         parent: {
           ...family.parent,
+          id: `parent-${payload.email.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || Date.now()}`,
           name: payload.name,
           email: payload.email,
           provider: "password"
         }
-      }
+        };
+        demoFamilies.set(familyId, nextFamily);
+        return nextFamily;
+      })()
     },
     201
   );
@@ -462,7 +487,8 @@ app.post("/auth/login/parent", async (c) => {
       session: {
         token: "demo-parent-password-session",
         role: "parent",
-        provider: "password"
+        provider: "password",
+        familyId: dbFamily.id
       },
       family: dbFamily
     });
@@ -489,6 +515,56 @@ app.get("/families/demo", async (c) => {
   }
 
   return c.json({ family });
+});
+
+app.get("/families/:familyId", async (c) => {
+  const familyId = c.req.param("familyId");
+  const demoFamily = demoFamilies.get(familyId);
+
+  if (demoFamily && !dbEnabled) {
+    return c.json({ family: demoFamily });
+  }
+
+  if (dbEnabled) {
+    return c.json({ family: await getFamily(familyId) });
+  }
+
+  return c.json({ family: null }, 404);
+});
+
+app.post("/families/:familyId", async (c) => {
+  const familyId = c.req.param("familyId");
+  const payload = createFamilySchema.parse(await c.req.json());
+  const demoFamily = demoFamilies.get(familyId);
+
+  if (demoFamily && !dbEnabled) {
+    const nextFamily = {
+      ...demoFamily,
+      language: payload.language,
+      name: payload.name,
+      timeZone: payload.timeZone
+    };
+    demoFamilies.set(familyId, nextFamily);
+
+    return c.json({ family: nextFamily });
+  }
+
+  if (dbEnabled) {
+    const dbFamily = await updateFamily({
+      familyId,
+      language: payload.language,
+      name: payload.name,
+      timeZone: payload.timeZone
+    });
+
+    if (!dbFamily) {
+      return c.json({ error: "Family not found" }, 404);
+    }
+
+    return c.json({ family: dbFamily });
+  }
+
+  return c.json({ error: "Family not found" }, 404);
 });
 
 app.get("/families/demo/children", async (c) => {
@@ -525,6 +601,54 @@ app.post("/families/demo/children", async (c) => {
     },
     201
   );
+});
+
+app.post("/families/:familyId/children", async (c) => {
+  const familyId = c.req.param("familyId");
+  const payload = createChildSchema.parse(await c.req.json());
+  const demoFamily = demoFamilies.get(familyId);
+
+  if (demoFamily && !dbEnabled) {
+    const baseId = payload.name.toLowerCase().replaceAll(/\s+/g, "-") || `child-${Date.now()}`;
+    const existingIds = new Set(demoFamily.children.map((child) => child.id));
+    let childId = baseId;
+    let index = 2;
+
+    while (existingIds.has(childId)) {
+      childId = `${baseId}-${index}`;
+      index += 1;
+    }
+    const child = {
+      id: childId,
+      name: payload.name,
+      age: payload.age,
+      grade: payload.grade,
+      pinLength: payload.pin.length,
+      companion: {
+        name: "Koko",
+        level: 1,
+        growth: 0
+      }
+    };
+    const nextFamily = {
+      ...demoFamily,
+      children: [...demoFamily.children, child]
+    };
+    demoFamilies.set(familyId, nextFamily);
+
+    return c.json(
+      {
+        child
+      },
+      201
+    );
+  }
+
+  if (dbEnabled) {
+    return c.json({ child: await createChild(payload, familyId) }, 201);
+  }
+
+  return c.json({ error: "Family not found" }, 404);
 });
 
 app.post("/auth/child/pin", async (c) => {
@@ -959,7 +1083,7 @@ app.post("/families/demo/missions/:id/timer-events", async (c) => {
   mission.actualStartAt = payload.eventType === "timer_start" ? mission.actualStartAt ?? recordedAt : mission.actualStartAt;
   mission.actualEndAt = payload.eventType === "timer_end" ? recordedAt : mission.actualEndAt;
   if (payload.eventType === "timer_end") {
-    mission.status = mission.status === "done" ? mission.status : "expired";
+    mission.status = mission.status === "done" || !isLimitedTimerMission(mission) ? mission.status : "expired";
     if (mission.activeRun && mission.activeRun.status !== "completed") {
       mission.activeRun = {
         ...mission.activeRun,
@@ -974,10 +1098,10 @@ app.post("/families/demo/missions/:id/timer-events", async (c) => {
   mission.eventRecords = [
     ...(mission.eventRecords ?? []),
     {
-      content: `${timerEventTitle(payload.eventType)}${payload.remainingSeconds === undefined ? "." : ` with ${payload.remainingSeconds} seconds remaining.`}`,
+      content: timerEventContent(payload.eventType, payload),
       id: `timer-${missionId}-${payload.eventType}-${Date.now()}`,
       eventType: payload.eventType,
-      metadata: { remainingSeconds: payload.remainingSeconds ?? null },
+      metadata: { elapsedSeconds: payload.elapsedSeconds ?? null, remainingSeconds: payload.remainingSeconds ?? null },
       recordedAt,
       title: timerEventTitle(payload.eventType)
     }
@@ -1288,6 +1412,19 @@ function timerEventTitle(eventType: "timer_start" | "timer_pause" | "timer_resum
     case "timer_end":
       return "Timer ended";
   }
+}
+
+function timerEventContent(
+  eventType: "timer_start" | "timer_pause" | "timer_resume" | "timer_end",
+  payload: { elapsedSeconds?: number; remainingSeconds?: number }
+) {
+  const elapsedText = payload.elapsedSeconds === undefined ? "" : ` with ${payload.elapsedSeconds} seconds elapsed`;
+  const remainingText = payload.remainingSeconds === undefined ? "" : ` with ${payload.remainingSeconds} seconds remaining`;
+  return `${timerEventTitle(eventType)}${elapsedText}${remainingText}.`;
+}
+
+function isLimitedTimerMission(mission: Pick<DemoMission, "targetApp" | "timeLimitMinutes">) {
+  return Boolean(mission.timeLimitMinutes || mission.targetApp);
 }
 
 export default app;

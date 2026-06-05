@@ -53,7 +53,9 @@ export const shared = StyleSheet.create({
     padding: 20
   },
   navButton: {
-    minHeight: 48,
+    display: "flex",
+    height: 48,
+    flexDirection: "row",
     borderRadius: 24,
     paddingHorizontal: 18,
     alignItems: "center",
@@ -61,7 +63,9 @@ export const shared = StyleSheet.create({
     backgroundColor: palette.deepGreen
   },
   navButtonAlt: {
-    minHeight: 48,
+    display: "flex",
+    height: 48,
+    flexDirection: "row",
     borderRadius: 24,
     paddingHorizontal: 18,
     alignItems: "center",
@@ -69,13 +73,23 @@ export const shared = StyleSheet.create({
     backgroundColor: palette.gold
   },
   navButtonText: {
+    height: 48,
     fontSize: 15,
+    lineHeight: 48,
     fontWeight: "900",
+    includeFontPadding: false,
+    textAlign: "center",
+    textAlignVertical: "center",
     color: "#FFFFFF"
   },
   navButtonAltText: {
+    height: 48,
     fontSize: 15,
+    lineHeight: 48,
     fontWeight: "900",
+    includeFontPadding: false,
+    textAlign: "center",
+    textAlignVertical: "center",
     color: "#392D12"
   },
   row: {
