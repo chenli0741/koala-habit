@@ -22,8 +22,8 @@ const layoutAnimationConfig = {
   update: { type: LayoutAnimation.Types.easeInEaseOut }
 };
 const columnSwitchThreshold = 44;
-const horizontalDragPreviewMax = 220;
-const horizontalDragPreviewRatio = 0.9;
+const horizontalDragPreviewMax = 520;
+const horizontalDragPreviewRatio = 1;
 
 export default function HomeScreen() {
   const { activeChild, children, completedCount, isSessionReady, language, missions, parent, setLanguage, t, todayEnergy, updateChild, updateMissionLayout } = useKoalaStore();
@@ -1359,12 +1359,12 @@ const styles = StyleSheet.create({
     alignItems: "flex-start"
   },
   dayBoardTapTarget: {
-    minHeight: "100%",
-    overflow: "hidden"
+    minHeight: "100%"
   },
   dayColumn: {
     flex: 1,
-    minWidth: 0
+    minWidth: 0,
+    overflow: "visible"
   },
   dayColumnDivider: {
     alignSelf: "stretch",
@@ -1398,7 +1398,7 @@ const styles = StyleSheet.create({
     opacity: 0.9
   },
   animatedDraggingMissionCard: {
-    zIndex: 3
+    zIndex: 20
   },
   dragHandle: {
     width: 32,
