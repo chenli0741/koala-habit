@@ -21,9 +21,9 @@ const layoutAnimationConfig = {
   create: { property: LayoutAnimation.Properties.opacity, type: LayoutAnimation.Types.easeInEaseOut },
   update: { type: LayoutAnimation.Types.easeInEaseOut }
 };
-const columnSwitchThreshold = 56;
-const horizontalDragPreviewMax = 96;
-const horizontalDragPreviewRatio = 0.42;
+const columnSwitchThreshold = 44;
+const horizontalDragPreviewMax = 220;
+const horizontalDragPreviewRatio = 0.9;
 
 export default function HomeScreen() {
   const { activeChild, children, completedCount, isSessionReady, language, missions, parent, setLanguage, t, todayEnergy, updateChild, updateMissionLayout } = useKoalaStore();
@@ -522,6 +522,7 @@ function TaskSchedule({
               />
             ))}
           </View>
+          <View style={styles.dayColumnDivider} />
           <View style={styles.dayColumn}>
             {dayColumns.secondary.map((mission) => (
               <MissionCard
@@ -581,6 +582,8 @@ function MissionCard({
       PanResponder.create({
         onMoveShouldSetPanResponder: () => true,
         onStartShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
         onPanResponderGrant: () => {
           onEnterReorder?.(mission.id);
           onDragStart?.(mission.id);
@@ -1356,11 +1359,19 @@ const styles = StyleSheet.create({
     alignItems: "flex-start"
   },
   dayBoardTapTarget: {
-    minHeight: "100%"
+    minHeight: "100%",
+    overflow: "hidden"
   },
   dayColumn: {
     flex: 1,
     minWidth: 0
+  },
+  dayColumnDivider: {
+    alignSelf: "stretch",
+    width: 1,
+    borderRadius: 1,
+    backgroundColor: "#DCCFBC",
+    opacity: 0.55
   },
   missionCard: {
     minHeight: 108,
