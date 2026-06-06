@@ -16,6 +16,11 @@ type CalendarDay = {
 };
 
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const layoutAnimationConfig = {
+  duration: 180,
+  create: { property: LayoutAnimation.Properties.opacity, type: LayoutAnimation.Types.easeInEaseOut },
+  update: { type: LayoutAnimation.Types.easeInEaseOut }
+};
 
 export default function HomeScreen() {
   const { activeChild, children, completedCount, isSessionReady, language, missions, parent, setLanguage, t, todayEnergy, updateChild, updateMissionLayout } = useKoalaStore();
@@ -390,7 +395,7 @@ function TaskSchedule({
   const [dayColumns, setDayColumns] = useState<DayMissionColumns>(() => splitDayMissions(missions));
   const [isReordering, setIsReordering] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const dragStepRef = useRef({ x: 0, y: 0 });
+  const dragStepRef = useRef({ y: 0 });
   const suppressNextSaveRef = useRef(false);
 
   useEffect(() => {
@@ -405,30 +410,33 @@ function TaskSchedule({
   }
 
   function startDrag(missionId: string) {
-    dragStepRef.current = { x: 0, y: 0 };
+    dragStepRef.current = { y: 0 };
     suppressNextSaveRef.current = true;
     setDraggingId(missionId);
   }
 
-  function moveDrag(missionId: string, dx: number, dy: number) {
+  function moveDrag(missionId: string, dy: number) {
     const nextStep = {
-      x: dx > 56 ? 1 : dx < -56 ? -1 : 0,
       y: Math.trunc(dy / 72)
     };
     const previousStep = dragStepRef.current;
 
-    if (nextStep.x === previousStep.x && nextStep.y === previousStep.y) {
+    if (nextStep.y === previousStep.y) {
       return;
     }
 
     dragStepRef.current = nextStep;
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setDayColumns((current) => moveMissionInColumns(current, missionId, nextStep.x, nextStep.y - previousStep.y));
+    LayoutAnimation.configureNext(layoutAnimationConfig);
+    setDayColumns((current) => moveMissionVertically(current, missionId, nextStep.y - previousStep.y));
   }
 
-  function endDrag() {
+  function endDrag(missionId?: string, dx = 0) {
     setDraggingId(null);
-    dragStepRef.current = { x: 0, y: 0 };
+    dragStepRef.current = { y: 0 };
+    if (missionId && Math.abs(dx) > 88) {
+      LayoutAnimation.configureNext(layoutAnimationConfig);
+      setDayColumns((current) => moveMissionToColumn(current, missionId, dx > 0 ? "secondary" : "primary"));
+    }
     setTimeout(() => {
       suppressNextSaveRef.current = false;
     }, 200);
@@ -546,8 +554,8 @@ function MissionCard({
   isDragging?: boolean;
   isReordering?: boolean;
   mission: Mission;
-  onDragEnd?: () => void;
-  onDragMove?: (missionId: string, dx: number, dy: number) => void;
+  onDragEnd?: (missionId: string, dx: number) => void;
+  onDragMove?: (missionId: string, dy: number) => void;
   onDragStart?: (missionId: string) => void;
   onEnterReorder?: (missionId: string) => void;
   t: (key: string) => string;
@@ -573,25 +581,25 @@ function MissionCard({
         },
         onPanResponderMove: (_, gestureState) => {
           dragOffset.setValue({ x: gestureState.dx, y: gestureState.dy });
-          onDragMove?.(mission.id, gestureState.dx, gestureState.dy);
+          onDragMove?.(mission.id, gestureState.dy);
         },
-        onPanResponderRelease: () => {
+        onPanResponderRelease: (_, gestureState) => {
           Animated.spring(dragOffset, {
             friction: 7,
             tension: 90,
             toValue: { x: 0, y: 0 },
             useNativeDriver: true
           }).start();
-          onDragEnd?.();
+          onDragEnd?.(mission.id, gestureState.dx);
         },
-        onPanResponderTerminate: () => {
+        onPanResponderTerminate: (_, gestureState) => {
           Animated.spring(dragOffset, {
             friction: 7,
             tension: 90,
             toValue: { x: 0, y: 0 },
             useNativeDriver: true
           }).start();
-          onDragEnd?.();
+          onDragEnd?.(mission.id, gestureState.dx);
         }
       }),
     [dragOffset, mission.id, onDragEnd, onDragMove, onDragStart, onEnterReorder]
@@ -722,10 +730,9 @@ function findMissionPosition(columns: DayMissionColumns, missionId: string) {
   return null;
 }
 
-function moveMissionInColumns(
+function moveMissionVertically(
   columns: DayMissionColumns,
   missionId: string,
-  horizontalStep: number,
   verticalStep: number
 ) {
   const mission = columns.primary.concat(columns.secondary).find((item) => item.id === missionId);
@@ -735,14 +742,38 @@ function moveMissionInColumns(
     return columns;
   }
 
-  const targetColumn: DayColumnKey = horizontalStep > 0 ? "secondary" : horizontalStep < 0 ? "primary" : currentPosition.column;
+  if (verticalStep === 0) {
+    return columns;
+  }
+
+  const targetColumn = currentPosition.column;
   const withoutMission: DayMissionColumns = {
     primary: columns.primary.filter((item) => item.id !== missionId),
     secondary: columns.secondary.filter((item) => item.id !== missionId)
   };
   const targetList = withoutMission[targetColumn];
-  const baseIndex = targetColumn === currentPosition.column ? currentPosition.index : Math.min(currentPosition.index, targetList.length);
-  const targetIndex = clamp(baseIndex + verticalStep, 0, targetList.length);
+  const targetIndex = clamp(currentPosition.index + verticalStep, 0, targetList.length);
+
+  return {
+    ...withoutMission,
+    [targetColumn]: [...targetList.slice(0, targetIndex), mission, ...targetList.slice(targetIndex)]
+  };
+}
+
+function moveMissionToColumn(columns: DayMissionColumns, missionId: string, targetColumn: DayColumnKey) {
+  const mission = columns.primary.concat(columns.secondary).find((item) => item.id === missionId);
+  const currentPosition = findMissionPosition(columns, missionId);
+
+  if (!mission || !currentPosition || currentPosition.column === targetColumn) {
+    return columns;
+  }
+
+  const withoutMission: DayMissionColumns = {
+    primary: columns.primary.filter((item) => item.id !== missionId),
+    secondary: columns.secondary.filter((item) => item.id !== missionId)
+  };
+  const targetList = withoutMission[targetColumn];
+  const targetIndex = clamp(currentPosition.index, 0, targetList.length);
 
   return {
     ...withoutMission,
