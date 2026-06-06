@@ -1,6 +1,6 @@
 import { Link, Redirect, router } from "expo-router";
-import { useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useKoalaStore } from "../../data/store";
 import { palette, shared } from "../../ui/styles";
 
@@ -11,8 +11,15 @@ export default function ChildPinScreen() {
   const [selectedChildId, setSelectedChildId] = useState(firstChildId);
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
+  const [isUnlocking, setIsUnlocking] = useState(false);
   const child = children.find((item) => item.id === selectedChildId) ?? children[0];
   const isCompact = width < 900;
+
+  useEffect(() => {
+    if (!selectedChildId && firstChildId) {
+      setSelectedChildId(firstChildId);
+    }
+  }, [firstChildId, selectedChildId]);
 
   if (!isSessionReady) {
     return (
@@ -27,22 +34,61 @@ export default function ChildPinScreen() {
   }
 
   async function handleUnlock() {
+    if (isUnlocking) {
+      return;
+    }
+
+    const childId = selectedChildId || child?.id || "";
+
+    if (!childId) {
+      setError(t("noTasksYet"));
+      return;
+    }
+
     if (!/^\d{4,6}$/.test(pin)) {
       setError(t("numericPin"));
       return;
     }
 
-    if (await loginChild(selectedChildId, pin)) {
-      setError("");
-      router.push("/");
+    setIsUnlocking(true);
+
+    try {
+      if (await loginChild(childId, pin)) {
+        setError("");
+        router.push("/");
+        return;
+      }
+
+      setError(t("numericPin"));
+    } finally {
+      setIsUnlocking(false);
+    }
+  }
+
+  function appendPinDigit(digit: string) {
+    if (isUnlocking) {
       return;
     }
 
-    setError(t("numericPin"));
+    setError("");
+    setPin((current) => (current.length < 6 ? `${current}${digit}` : current));
+  }
+
+  function deletePinDigit() {
+    if (isUnlocking) {
+      return;
+    }
+
+    setError("");
+    setPin((current) => current.slice(0, -1));
   }
 
   return (
-    <ScrollView style={styles.scroller} contentContainerStyle={StyleSheet.flatten([styles.screen, isCompact && styles.screenCompact])}>
+    <ScrollView
+      contentContainerStyle={StyleSheet.flatten([styles.screen, isCompact && styles.screenCompact])}
+      contentInsetAdjustmentBehavior="automatic"
+      style={styles.scroller}
+    >
       <View style={[styles.loginPanel, isCompact && styles.loginPanelCompact]}>
         <Text style={shared.kicker}>{t("childLogin")}</Text>
         <Text style={[shared.title, isCompact && styles.titleCompact]}>{t("hi")} {child?.name ?? ""}</Text>
@@ -52,7 +98,11 @@ export default function ChildPinScreen() {
           {children.map((item) => (
             <Pressable
               key={item.id}
-              onPress={() => setSelectedChildId(item.id)}
+              onPress={() => {
+                setSelectedChildId(item.id);
+                setPin("");
+                setError("");
+              }}
               style={[styles.childChoice, item.id === selectedChildId && styles.childChoiceActive]}
             >
               <Text style={[styles.childChoiceText, item.id === selectedChildId && styles.childChoiceTextActive]}>
@@ -63,24 +113,50 @@ export default function ChildPinScreen() {
         </View>
 
         <View style={styles.pinRow}>
-          <TextInput
-            keyboardType="number-pad"
-            maxLength={6}
-            onChangeText={(value) => setPin(value.replace(/\D/g, ""))}
-            onSubmitEditing={handleUnlock}
-            placeholder="1234"
-            returnKeyType="done"
-            secureTextEntry
-            style={styles.pinInput}
-            submitBehavior="submit"
-            value={pin}
-          />
+          <View style={styles.pinDisplay} accessibilityLabel={`PIN length ${pin.length}`}>
+            <Text style={[styles.pinDisplayText, !pin && styles.pinDisplayPlaceholder]}>{pin || "1234"}</Text>
+          </View>
+        </View>
+        <View style={styles.pinPad}>
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
+            <Pressable
+              accessibilityLabel={`PIN ${digit}`}
+              disabled={isUnlocking}
+              key={digit}
+              onPress={() => appendPinDigit(digit)}
+              style={styles.pinKey}
+            >
+              <Text style={styles.pinKeyText}>{digit}</Text>
+            </Pressable>
+          ))}
+          <View style={styles.pinKeySpacer} />
+          <Pressable
+            accessibilityLabel="PIN 0"
+            disabled={isUnlocking}
+            onPress={() => appendPinDigit("0")}
+            style={styles.pinKey}
+          >
+            <Text style={styles.pinKeyText}>0</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Delete PIN digit"
+            disabled={isUnlocking}
+            onPress={deletePinDigit}
+            style={styles.pinKey}
+          >
+            <Text style={styles.pinKeyText}>⌫</Text>
+          </Pressable>
         </View>
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         <View style={styles.actions}>
-          <Pressable style={shared.navButtonAlt} onPress={handleUnlock}>
-            <Text style={shared.navButtonAltText}>{t("unlockMissions")}</Text>
+          <Pressable
+            accessibilityState={{ busy: isUnlocking, disabled: isUnlocking }}
+            disabled={isUnlocking}
+            style={[shared.navButtonAlt, isUnlocking && styles.unlockButtonDisabled]}
+            onPress={handleUnlock}
+          >
+            <Text style={shared.navButtonAltText}>{isUnlocking ? t("loading") : t("unlockMissions")}</Text>
           </Pressable>
           <Link href="/auth" style={shared.navButton}>
             <Text style={shared.navButtonText}>{t("switchAccount")}</Text>
@@ -179,21 +255,56 @@ const styles = StyleSheet.create({
   pinRow: {
     width: "100%",
     maxWidth: 330,
-    marginTop: 34,
+    marginTop: 26,
     marginBottom: 14
   },
-  pinInput: {
+  pinDisplay: {
     height: 88,
     borderRadius: 8,
     backgroundColor: "#FAF7F0",
     borderWidth: 1,
     borderColor: palette.line,
+    paddingHorizontal: 22,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  pinDisplayText: {
     color: palette.ink,
     fontSize: 42,
     fontWeight: "900",
     letterSpacing: 8,
-    paddingHorizontal: 22,
+    lineHeight: 50,
     textAlign: "center"
+  },
+  pinDisplayPlaceholder: {
+    color: "#C9C2B7"
+  },
+  pinPad: {
+    width: "100%",
+    maxWidth: 330,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 16
+  },
+  pinKey: {
+    width: 96,
+    height: 54,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  pinKeySpacer: {
+    width: 96,
+    height: 54
+  },
+  pinKeyText: {
+    color: palette.ink,
+    fontSize: 24,
+    fontWeight: "900"
   },
   errorText: {
     color: "#B75F4A",
@@ -205,6 +316,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12
+  },
+  unlockButtonDisabled: {
+    opacity: 0.65
   },
   companionPanel: {
     flex: 1,

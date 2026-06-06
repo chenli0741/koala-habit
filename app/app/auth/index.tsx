@@ -18,9 +18,11 @@ export default function AuthStartScreen() {
       return;
     }
 
-    if (await loginParent(email, password)) {
+    const loginResult = await loginParent(email, password);
+
+    if (loginResult) {
       setMessage(t("signedIn"));
-      router.replace(children.length > 0 ? "/auth/child-pin" : "/auth/create-child");
+      router.replace(loginResult.hasChildren ? "/auth/child-pin" : "/auth/create-child");
       return;
     }
 

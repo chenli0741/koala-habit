@@ -87,11 +87,11 @@ type KoalaStore = {
   missions: Mission[];
   todayEnergy: number;
   completedCount: number;
-  loginParent: (email: string, password: string) => Promise<boolean>;
+  loginParent: (email: string, password: string) => Promise<{ hasChildren: boolean } | null>;
   registerParent: (name: string, email: string, password: string) => Promise<void>;
   createFamily: (name: string, timeZone: string, language: string) => Promise<void>;
   signInGoogleParent: (name: string, email: string, idToken?: string) => Promise<void>;
-  signInParent: (name: string, email: string) => Promise<void>;
+  signInParent: (name: string, email: string) => Promise<{ hasChildren: boolean }>;
   createChild: (child: Omit<ChildAccount, "id">) => Promise<ChildAccount>;
   updateChild: (childId: string, child: Partial<Omit<ChildAccount, "id">>) => Promise<ChildAccount | null>;
   loginChild: (childId: string, pin: string) => Promise<boolean>;
@@ -236,7 +236,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           const family = await loginParentApi(email.trim(), password);
 
           if (!family.parent) {
-            return false;
+            return null;
           }
 
           setParent(family.parent);
@@ -246,9 +246,9 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setActiveChildId(null);
           setMissionItems([]);
           await saveParentSession({ token: family.token, family: familySummary(family), parent: family.parent, children: family.children });
-          return true;
+          return { hasChildren: family.children.length > 0 };
         } catch {
-          return false;
+          return null;
         }
       },
       registerParent: async (name, email, password) => {
@@ -346,6 +346,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           }
 
           await saveParentSession({ token: family.token, family: familySummary(family), parent: storedParent, children: family.children });
+          return { hasChildren: family.children.length > 0 };
         } catch {
           const nextFamily = pendingFamilyForParent(nextParent);
           setParent(nextParent);
@@ -354,6 +355,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setActiveChildId(null);
           setMissionItems([]);
           await saveParentSession({ token: "local-apple-parent-session", family: nextFamily, parent: nextParent, children: childAccounts });
+          return { hasChildren: childAccounts.length > 0 };
         }
       },
       createChild: async (child) => {

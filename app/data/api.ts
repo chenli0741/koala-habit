@@ -3,6 +3,7 @@ import { Mission, MissionCategory, MissionExecutionType, TaskAttachment } from "
 import type { ChildAccount, ParentAccount } from "./store";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? Constants.expoConfig?.extra?.apiUrl ?? getDefaultApiBaseUrl();
+const API_REQUEST_TIMEOUT_MS = 10000;
 
 type ServerChild = {
   id: string;
@@ -477,19 +478,27 @@ export function toMissionPayload(childId: string, draft: Omit<Mission, "id">): M
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...init?.headers
+      },
+      signal: init?.signal ?? controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status}`);
     }
-  });
 
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`);
+    return response.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return response.json() as Promise<T>;
 }
 
 function getDefaultApiBaseUrl() {

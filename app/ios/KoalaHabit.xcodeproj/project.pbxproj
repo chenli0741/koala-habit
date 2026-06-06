@@ -25,11 +25,11 @@
 		2AD02FFCBD43BA02E7C617CD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = KoalaHabit/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		5CC2C0A65FAF4E7D91F186AF /* timer-alert.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "timer-alert.wav"; path = "KoalaHabit/timer-alert.wav"; sourceTree = "<group>"; };
 		77F7ACE9330CEF7FACA8A2A5 /* Pods-KoalaHabit.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-KoalaHabit.debug.xcconfig"; path = "Target Support Files/Pods-KoalaHabit/Pods-KoalaHabit.debug.xcconfig"; sourceTree = "<group>"; };
-		E4839754964C442F8D29C2A5 /* task-time-up.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "task-time-up.wav"; path = "KoalaHabit/task-time-up.wav"; sourceTree = "<group>"; };
 		A97856D4A55D12AC3140F347 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-KoalaHabit/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = KoalaHabit/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		D484319B22C7185DB903F4E3 /* Pods-KoalaHabit.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-KoalaHabit.release.xcconfig"; path = "Target Support Files/Pods-KoalaHabit/Pods-KoalaHabit.release.xcconfig"; sourceTree = "<group>"; };
+		E4839754964C442F8D29C2A5 /* task-time-up.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = "task-time-up.wav"; path = "KoalaHabit/task-time-up.wav"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = KoalaHabit/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* KoalaHabit-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "KoalaHabit-Bridging-Header.h"; path = "KoalaHabit/KoalaHabit-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -356,7 +356,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = KoalaHabit/KoalaHabit.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = V9QH9Q5X5P;
+				DEVELOPMENT_TEAM = 2PQPJB9568;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -393,7 +393,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = KoalaHabit/KoalaHabit.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = V9QH9Q5X5P;
+				DEVELOPMENT_TEAM = 2PQPJB9568;
 				INFOPLIST_FILE = KoalaHabit/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -10,8 +10,8 @@ export default function ParentAppleScreen() {
   const [email, setEmail] = useState(parent?.email ?? "parent@example.com");
 
   async function handleSignIn() {
-    await signInParent(name, email);
-    router.push("/auth/create-child");
+    const result = await signInParent(name, email);
+    router.replace(result.hasChildren ? "/auth/child-pin" : "/auth/create-child");
   }
 
   return (
