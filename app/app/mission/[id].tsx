@@ -11,6 +11,7 @@ import * as Linking from "expo-linking";
 import { Link, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { uploadMissionFileApi } from "../../data/api";
 import { encouragements, Mission, TaskAttachment } from "../../data/demo";
 import { useKoalaStore } from "../../data/store";
 import { palette, shared } from "../../ui/styles";
@@ -20,7 +21,7 @@ const TIMER_NOTIFICATION_INTERRUPTION_LEVEL = "timeSensitive";
 
 export default function MissionDetailScreen() {
   const { id } = useLocalSearchParams();
-  const { completeMission, finishEntertainmentRun, getMission, pauseEntertainmentRun, recordMissionTimerEvent, resumeEntertainmentRun, startEntertainmentRun, t } = useKoalaStore();
+  const { cancelMission, completeMission, finishEntertainmentRun, getMission, pauseEntertainmentRun, recordMissionTimerEvent, resumeEntertainmentRun, startEntertainmentRun, t } = useKoalaStore();
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder);
   const [photoUri, setPhotoUri] = useState<string | undefined>();
@@ -36,9 +37,10 @@ export default function MissionDetailScreen() {
   const mission = getMission(id);
   const executionType = mission?.executionType ?? "completion";
   const isTimedTask = executionType === "timed";
+  const isScheduleTask = executionType === "schedule";
   const isSubmissionTask = executionType === "submission";
-  const regularTimerState = mission && !isTimedTask ? regularTimerStateForMission(mission) : "idle";
-  const regularElapsedSeconds = mission && !isTimedTask ? elapsedSecondsForRegularTimer(mission, nowMs) : 0;
+  const regularTimerState = mission && !isTimedTask && !isScheduleTask ? regularTimerStateForMission(mission) : "idle";
+  const regularElapsedSeconds = mission && !isTimedTask && !isScheduleTask ? elapsedSecondsForRegularTimer(mission, nowMs) : 0;
   const timerMinutes = useMemo(() => mission?.timeLimitMinutes ?? 10, [mission?.timeLimitMinutes]);
   const timeLimitSeconds = timerMinutes * 60;
   const targetAppOptions = useMemo(() => targetAppOptionsForMission(mission?.targetApp), [mission?.targetApp]);
@@ -202,11 +204,39 @@ export default function MissionDetailScreen() {
       await recordMissionTimerEvent(mission.id, { elapsedSeconds: regularElapsedSeconds, eventType: "timer_end" });
     }
 
+    let uploadedPhotoUri = photoUri;
+    let uploadedAudioUri = audioUri;
+
+    try {
+      uploadedPhotoUri = photoUri
+        ? await uploadMissionFileApi({
+            fileName: proofFileName(missionId, "photo", photoUri),
+            kind: "photo",
+            mimeType: "image/jpeg",
+            missionId,
+            uri: photoUri
+          })
+        : undefined;
+      uploadedAudioUri = audioUri
+        ? await uploadMissionFileApi({
+            fileName: proofFileName(missionId, "audio", audioUri),
+            kind: "audio",
+            mimeType: audioMimeType(audioUri),
+            missionId,
+            uri: audioUri
+          })
+        : undefined;
+    } catch (error) {
+      console.warn("[Mission] proof upload failed", readableError(error));
+      Alert.alert(t("attachments"), "Proof upload failed. Please try again.");
+      return;
+    }
+
     await completeMission(missionId, {
       actualMinutes,
-      audioUri,
+      audioUri: uploadedAudioUri,
       endedAt,
-      photoUri,
+      photoUri: uploadedPhotoUri,
       startedAt
     });
     setSubmitMessage(photoUri || audioUri ? t("proofAttached") : t("complete"));
@@ -414,7 +444,7 @@ export default function MissionDetailScreen() {
           <Text style={shared.title}>
             {mission.icon} {mission.title}
           </Text>
-          <Text numberOfLines={2} style={[shared.subtitle, styles.headerSubtitle]}>{mission.detail}</Text>
+          <Text numberOfLines={2} style={StyleSheet.flatten([shared.subtitle, styles.headerSubtitle])}>{mission.detail}</Text>
         </View>
         <Link href="/" style={shared.navButton}>
           <Text style={shared.navButtonText}>{t("backHome")}</Text>
@@ -422,7 +452,7 @@ export default function MissionDetailScreen() {
       </View>
 
       <View style={styles.grid}>
-        <View style={[shared.card, styles.primaryCard]}>
+        <View style={StyleSheet.flatten([shared.card, styles.primaryCard])}>
           <View style={styles.primaryCardMain}>
             <ScrollView style={styles.cardScroll} contentContainerStyle={styles.primaryCardContent}>
               <View>
@@ -459,11 +489,11 @@ export default function MissionDetailScreen() {
 
               <View>
                 <View style={styles.bigNumberRow}>
-                  <Text style={[styles.bigNumber, { color: mission.tone }]}>{percent}%</Text>
+                  <Text style={StyleSheet.flatten([styles.bigNumber, { color: mission.tone }])}>{percent}%</Text>
                   <Text style={styles.status}>{missionStatusText(displayStatus, t)}</Text>
                 </View>
                 <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
+                  <View style={StyleSheet.flatten([styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }])} />
                 </View>
               </View>
             </ScrollView>
@@ -484,15 +514,39 @@ export default function MissionDetailScreen() {
           ) : null}
         </View>
 
-        <View style={[shared.card, styles.secondaryCard]}>
+        <View style={StyleSheet.flatten([shared.card, styles.secondaryCard])}>
           <ScrollView style={styles.cardScroll} contentContainerStyle={styles.secondaryCardContent}>
-            {isTimedTask ? (
+            {isScheduleTask ? (
+              <View style={styles.timerPanel}>
+                <View style={styles.timerCopy}>
+                  <Text style={styles.sectionLabel}>Schedule · {mission.occurrenceDate}</Text>
+                  <Text style={StyleSheet.flatten([styles.scheduleTimeValue, { color: mission.tone }])}>{mission.scheduledTime || t("planned")}</Text>
+                  <Text style={styles.timerHint}>{mission.target || mission.detail}</Text>
+                </View>
+                <View style={styles.timerActions}>
+                  {mission.status === "cancelled" ? (
+                    <Text style={styles.timerDoneText}>Cancelled</Text>
+                  ) : mission.status === "done" ? (
+                    <Text style={styles.timerDoneText}>{t("done")}</Text>
+                  ) : (
+                    <View style={styles.timerActionColumn}>
+                      <Pressable style={styles.timerButton} onPress={() => submitCompletion(mission.id)}>
+                        <Text style={styles.timerButtonText}>{t("done")}</Text>
+                      </Pressable>
+                      <Pressable style={styles.timerButtonSecondary} onPress={() => cancelMission(mission.id)}>
+                        <Text style={styles.timerButtonSecondaryText}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              </View>
+            ) : isTimedTask ? (
               <View style={styles.timerPanel}>
                 <View style={styles.timerCopy}>
                   <Text style={styles.sectionLabel}>
                     {activeTargetApp ? `${activeTargetApp} · ` : ""}{isEntertainmentPaused ? t("paused") : isEntertainmentOverdue ? t("overdue") : t("countdown")} · {timerMinutes} min
                   </Text>
-                  <Text style={[styles.timerValue, { color: mission.tone }]}>{formatDuration(displaySeconds)}</Text>
+                  <Text style={StyleSheet.flatten([styles.timerValue, { color: mission.tone }])}>{formatDuration(displaySeconds)}</Text>
                   {targetAppOptions.length > 1 && !activeEntertainmentRun && !hasFinishedEntertainmentRun ? (
                     <View style={styles.targetAppPicker}>
                       <Pressable style={styles.targetAppPickerButton} onPress={() => setIsTargetAppMenuOpen((current) => !current)}>
@@ -504,13 +558,13 @@ export default function MissionDetailScreen() {
                           {targetAppOptions.map((option) => (
                             <Pressable
                               key={option}
-                              style={[styles.targetAppMenuItem, option === activeTargetApp && styles.targetAppMenuItemActive]}
+                              style={StyleSheet.flatten([styles.targetAppMenuItem, option === activeTargetApp && styles.targetAppMenuItemActive])}
                               onPress={() => {
                                 setSelectedTargetApp(option);
                                 setIsTargetAppMenuOpen(false);
                               }}
                             >
-                              <Text style={[styles.targetAppMenuText, option === activeTargetApp && styles.targetAppMenuTextActive]}>{option}</Text>
+                              <Text style={StyleSheet.flatten([styles.targetAppMenuText, option === activeTargetApp && styles.targetAppMenuTextActive])}>{option}</Text>
                             </Pressable>
                           ))}
                         </View>
@@ -550,7 +604,7 @@ export default function MissionDetailScreen() {
               <View style={styles.timerPanel}>
                 <View style={styles.timerCopy}>
                   <Text style={styles.sectionLabel}>{isSubmissionTask ? t("submissionTask") : t("completionTask")} · {t("elapsedTime")}</Text>
-                  <Text style={[styles.timerValue, { color: mission.tone }]}>{formatDuration(regularElapsedSeconds)}</Text>
+                  <Text style={StyleSheet.flatten([styles.timerValue, { color: mission.tone }])}>{formatDuration(regularElapsedSeconds)}</Text>
                   <Text style={styles.timerHint}>{isSubmissionTask ? t("submissionTaskHint") : t("completionTaskHint")}</Text>
                 </View>
                 {regularTimerState === "ended" || mission.status === "done" ? (
@@ -574,7 +628,7 @@ export default function MissionDetailScreen() {
                 )}
               </View>
             )}
-            {!isTimedTask ? (
+            {!isTimedTask && !isScheduleTask ? (
               <>
                 <Text style={styles.cardTitle}>{t("submitResult")}</Text>
                 <View style={styles.actionGrid}>
@@ -582,18 +636,18 @@ export default function MissionDetailScreen() {
                     <Text style={styles.actionIcon}>✅</Text>
                     <Text style={styles.actionText}>{t("complete")}</Text>
                   </Pressable>
-                  <Pressable style={[styles.actionButton, photoUri && styles.actionButtonActive]} onPress={capturePhoto}>
+                  <Pressable style={StyleSheet.flatten([styles.actionButton, photoUri && styles.actionButtonActive])} onPress={capturePhoto}>
                     <Text style={styles.actionIcon}>📷</Text>
                     <Text style={styles.actionText}>{t("photo")}</Text>
                   </Pressable>
-                  <Pressable style={[styles.actionButton, audioUri && styles.actionButtonActive]} onPress={toggleRecording}>
+                  <Pressable style={StyleSheet.flatten([styles.actionButton, audioUri && styles.actionButtonActive])} onPress={toggleRecording}>
                     <Text style={styles.actionIcon}>🎤</Text>
                     <Text style={styles.actionText}>{t("audio")}</Text>
                   </Pressable>
                 </View>
               </>
             ) : null}
-            {(!isTimedTask && (photoUri || audioUri || submitMessage)) ? (
+            {(!isTimedTask && !isScheduleTask && (photoUri || audioUri || submitMessage)) ? (
               <View style={styles.proofPanel}>
                 {photoUri ? <Image source={{ uri: photoUri }} style={styles.photoPreview} /> : null}
                 <View style={styles.proofCopy}>
@@ -657,7 +711,13 @@ export default function MissionDetailScreen() {
           </ScrollView>
         </View>
       </View>
-      <Modal transparent animationType="fade" visible={isPlanExpanded} onRequestClose={() => setIsPlanExpanded(false)}>
+      <Modal
+        transparent
+        animationType="fade"
+        supportedOrientations={["landscape-left", "landscape-right"]}
+        visible={isPlanExpanded}
+        onRequestClose={() => setIsPlanExpanded(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <View style={styles.modalHeader}>
@@ -677,7 +737,7 @@ export default function MissionDetailScreen() {
 }
 
 function missionStatusText(status: Mission["status"], t: (key: string) => string) {
-  return status === "done" ? t("done") : status === "in_progress" ? t("inProgress") : t("todo");
+  return status === "done" ? t("done") : status === "in_progress" ? t("inProgress") : status === "cancelled" ? "Cancelled" : t("todo");
 }
 
 function isMissionVisiblyComplete(mission: Mission, isTimedTask: boolean, hasFinishedTimedRun: boolean) {
@@ -708,6 +768,10 @@ function missionCategoryLabel(category: Mission["category"]) {
     case "Movies":
     case "entertainment":
       return "娱乐 Game";
+    case "schedule":
+    case "reminder":
+    case "calendar":
+      return "日程 Schedule";
     default:
       return "其他 Other";
   }
@@ -803,6 +867,36 @@ function safeAttachmentFileName(name: string, mimeType?: string) {
   return fallbackExtension && !baseName.toLowerCase().endsWith(fallbackExtension) ? `${baseName}${fallbackExtension}` : baseName;
 }
 
+function proofFileName(missionId: string, kind: "photo" | "audio", uri: string) {
+  const cleanMissionId = missionId.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "mission";
+  const extension = kind === "photo" ? ".jpg" : extensionFromUri(uri) || extensionForMimeType(audioMimeType(uri)) || ".m4a";
+  return `${cleanMissionId}-${kind}-${Date.now()}${extension}`;
+}
+
+function audioMimeType(uri: string) {
+  const lowerUri = uri.toLowerCase();
+
+  if (lowerUri.endsWith(".wav")) {
+    return "audio/wav";
+  }
+
+  if (lowerUri.endsWith(".mp3")) {
+    return "audio/mpeg";
+  }
+
+  if (lowerUri.endsWith(".aac")) {
+    return "audio/aac";
+  }
+
+  return "audio/mp4";
+}
+
+function extensionFromUri(uri: string) {
+  const pathname = uri.split("?")[0] ?? "";
+  const match = pathname.match(/\.([a-zA-Z0-9]+)$/);
+  return match ? `.${match[1].toLowerCase()}` : "";
+}
+
 function extensionForMimeType(mimeType?: string) {
   switch (mimeType) {
     case "application/pdf":
@@ -816,6 +910,10 @@ function extensionForMimeType(mimeType?: string) {
     case "audio/wav":
     case "audio/x-wav":
       return ".wav";
+    case "audio/aac":
+      return ".aac";
+    case "audio/mp4":
+      return ".m4a";
     default:
       return "";
   }
@@ -1454,6 +1552,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
     minWidth: 150
   },
+  scheduleTimeValue: {
+    fontSize: 38,
+    lineHeight: 46,
+    fontWeight: "900",
+    marginTop: 4
+  },
   timerActions: {
     flexShrink: 0,
     minWidth: 140
@@ -1470,6 +1574,18 @@ const styles = StyleSheet.create({
   },
   timerButtonText: {
     color: "white",
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  timerButtonSecondary: {
+    borderRadius: 8,
+    backgroundColor: "#EEF3EA",
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    alignItems: "center"
+  },
+  timerButtonSecondaryText: {
+    color: palette.green,
     fontSize: 15,
     fontWeight: "900"
   },

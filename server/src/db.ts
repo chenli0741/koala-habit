@@ -11,6 +11,7 @@ type ParentInput = {
 
 type ChildInput = {
   age: number;
+  avatarUri?: string;
   grade: number;
   name: string;
   pin: string;
@@ -37,7 +38,7 @@ export type MissionInput = {
   rewardMinutes: number;
   scheduledTime?: string;
   source?: string;
-  status: "done" | "todo" | "in_progress" | "expired";
+  status: "cancelled" | "done" | "todo" | "in_progress" | "expired";
   target: string;
   targetApp?: string;
   timeLimitMinutes?: number;
@@ -89,6 +90,7 @@ type TaskEventType =
   | "timer_resume"
   | "timer_end"
   | "completion"
+  | "cancelled"
   | "attachment_added";
 
 type OccurrenceStatus = "pending" | "done" | "skipped" | "expired";
@@ -187,6 +189,8 @@ export async function initDb() {
       companion_growth integer not null default 0,
       created_at timestamptz not null default now()
     );
+
+    alter table children add column if not exists avatar_uri text;
 
     create table if not exists missions (
       id text primary key,
@@ -507,6 +511,7 @@ export async function getChildren(familyId = "family-demo") {
   const result = await pool!.query(
     `
       select id, name, age, grade, length(pin) as pin_length, companion_name, companion_level, companion_growth
+        , avatar_uri
       from children
       where family_id = $1
       order by created_at asc
@@ -533,11 +538,50 @@ export async function createChild(input: ChildInput, familyId = "family-demo") {
 
   const result = await pool!.query(
     `
-      insert into children (id, family_id, name, age, grade, pin)
-      values ($1, $2, $3, $4, $5, $6)
-      returning id, name, age, grade, length(pin) as pin_length, companion_name, companion_level, companion_growth
+      insert into children (id, family_id, name, age, grade, pin, avatar_uri)
+      values ($1, $2, $3, $4, $5, $6, $7)
+      returning id, name, age, grade, length(pin) as pin_length, companion_name, companion_level, companion_growth, avatar_uri
     `,
-    [childId, familyId, input.name, input.age, input.grade, input.pin]
+    [childId, familyId, input.name, input.age, input.grade, input.pin, input.avatarUri ?? null]
+  );
+
+  return mapChild(result.rows[0]);
+}
+
+export async function updateChild(childId: string, input: Partial<ChildInput>, familyId = "family-demo") {
+  assertPool();
+
+  const current = await pool!.query(
+    `
+      select id, name, age, grade, pin, avatar_uri
+      from children
+      where id = $1 and family_id = $2
+    `,
+    [childId, familyId]
+  );
+  const row = current.rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  const nextName = input.name ?? String(row.name);
+  const nextAge = input.age ?? Number(row.age);
+  const nextGrade = input.grade ?? Number(row.grade);
+  const nextPin = input.pin ?? String(row.pin);
+  const nextAvatarUri = input.avatarUri ?? (row.avatar_uri ? String(row.avatar_uri) : null);
+  const result = await pool!.query(
+    `
+      update children
+      set name = $1,
+          age = $2,
+          grade = $3,
+          pin = $4,
+          avatar_uri = $5
+      where id = $6 and family_id = $7
+      returning id, name, age, grade, length(pin) as pin_length, companion_name, companion_level, companion_growth, avatar_uri
+    `,
+    [nextName, nextAge, nextGrade, nextPin, nextAvatarUri, childId, familyId]
   );
 
   return mapChild(result.rows[0]);
@@ -548,7 +592,7 @@ export async function findChildByPin(childId: string, pin: string) {
 
   const result = await pool!.query(
     `
-      select id, name, age, grade, length(pin) as pin_length, companion_name, companion_level, companion_growth
+      select id, name, age, grade, length(pin) as pin_length, companion_name, companion_level, companion_growth, avatar_uri
       from children
       where id = $1 and pin = $2
     `,
@@ -1296,6 +1340,73 @@ export async function resetTimedMission(missionId: string) {
   return getMissionOccurrence(missionId);
 }
 
+export async function cancelMission(missionId: string) {
+  assertPool();
+
+  let occurrenceId = missionId;
+  let result = await pool!.query(
+    `
+      update task_occurrences
+      set status = 'skipped',
+          actual_end_at = coalesce(actual_end_at, now()),
+          updated_at = now()
+      where id = $1
+      returning id, child_id, title
+    `,
+    [missionId]
+  );
+
+  if (result.rowCount === 0) {
+    const materialized = await materializeVirtualOccurrence(missionId);
+
+    if (!materialized) {
+      return null;
+    }
+
+    occurrenceId = materialized.id;
+    result = await pool!.query(
+      `
+        update task_occurrences
+        set status = 'skipped',
+            actual_end_at = coalesce(actual_end_at, now()),
+            updated_at = now()
+        where id = $1
+        returning id, child_id, title
+      `,
+      [occurrenceId]
+    );
+  }
+
+  const occurrence = result.rows[0] as { child_id: string; id: string; title: string } | undefined;
+
+  if (!occurrence) {
+    return null;
+  }
+
+  await pool!.query(
+    `
+      update task_app_runs
+      set status = 'completed',
+          completed_at = coalesce(completed_at, now()),
+          updated_at = now()
+      where occurrence_id = $1
+        and status in ('running', 'paused')
+    `,
+    [occurrenceId]
+  );
+
+  await insertTaskEvent({
+    childId: occurrence.child_id,
+    content: `Task "${occurrence.title}" was cancelled.`,
+    eventType: "cancelled",
+    metadata: { status: "skipped" },
+    occurrenceId,
+    title: "Task cancelled"
+  });
+
+  return getMissionOccurrence(occurrenceId);
+}
+
 async function insertCompletionReward(
   occurrenceId: string,
   options: { actualMinutes?: number; isOverdue?: boolean; rewardId: string }
@@ -1869,6 +1980,7 @@ function mapChild(row: Record<string, unknown>) {
     age: Number(row.age),
     grade: Number(row.grade),
     pinLength: Number(row.pin_length),
+    avatarUri: row.avatar_uri ? String(row.avatar_uri) : undefined,
     companion: {
       name: String(row.companion_name),
       level: Number(row.companion_level),
@@ -2438,7 +2550,11 @@ function mapMission(row: Record<string, unknown>) {
 }
 
 function inferExecutionType(input: { category: string; targetApp?: string; timeLimitMinutes?: number }) {
-  if (input.targetApp || input.category === "entertainment" || input.category === "Movies" || input.category === "Game") {
+  if (["schedule", "reminder", "calendar"].includes(input.category) || input.category.startsWith("google_calendar")) {
+    return "schedule";
+  }
+
+  if (input.targetApp || input.timeLimitMinutes || input.category === "entertainment" || input.category === "Movies" || input.category === "Game") {
     return "timed";
   }
 
@@ -2477,6 +2593,10 @@ function toMissionStatus(status: OccurrenceStatus, progress: number, total: numb
     return "done";
   }
 
+  if (status === "skipped") {
+    return "cancelled";
+  }
+
   if (status === "expired") {
     return "expired";
   }
@@ -2489,6 +2609,10 @@ function toMissionStatus(status: OccurrenceStatus, progress: number, total: numb
 }
 
 function toOccurrenceStatus(status: MissionInput["status"]): OccurrenceStatus {
+  if (status === "cancelled") {
+    return "skipped";
+  }
+
   if (status === "done" || status === "expired") {
     return status;
   }

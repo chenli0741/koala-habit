@@ -30,7 +30,7 @@ export default function AuthStartScreen() {
   const isCompact = width < 900;
 
   return (
-    <ScrollView style={styles.scroller} contentContainerStyle={[styles.screen, isCompact && styles.screenCompact]}>
+    <ScrollView style={styles.scroller} contentContainerStyle={StyleSheet.flatten([styles.screen, isCompact && styles.screenCompact])}>
       <View style={[styles.hero, isCompact && styles.heroCompact]}>
         <Text style={shared.kicker}>{t("parentLogin")}</Text>
         <Text style={[shared.title, isCompact && styles.titleCompact]}>{t("signIn")}</Text>

@@ -42,7 +42,7 @@ export default function ChildPinScreen() {
   }
 
   return (
-    <ScrollView style={styles.scroller} contentContainerStyle={[styles.screen, isCompact && styles.screenCompact]}>
+    <ScrollView style={styles.scroller} contentContainerStyle={StyleSheet.flatten([styles.screen, isCompact && styles.screenCompact])}>
       <View style={[styles.loginPanel, isCompact && styles.loginPanelCompact]}>
         <Text style={shared.kicker}>{t("childLogin")}</Text>
         <Text style={[shared.title, isCompact && styles.titleCompact]}>{t("hi")} {child?.name ?? ""}</Text>

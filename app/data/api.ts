@@ -9,6 +9,7 @@ type ServerChild = {
   name: string;
   age: number;
   grade: number;
+  avatarUri?: string;
   pinLength?: number;
 };
 
@@ -41,6 +42,8 @@ type ServerMission = {
   actualStartAt?: string;
   occurrenceDate?: string;
   occurrenceStatus?: "pending" | "done" | "skipped" | "expired";
+  scheduledTime?: string;
+  repeatRule?: string;
   id: string;
   icon?: string;
   title: string;
@@ -71,7 +74,7 @@ type ServerMission = {
   rewardMinutes?: number;
   eventRecords?: Array<{
     content: string;
-    eventType: "created" | "updated" | "status_change" | "timer_start" | "timer_pause" | "timer_resume" | "timer_end" | "completion" | "attachment_added";
+    eventType: "created" | "updated" | "status_change" | "timer_start" | "timer_pause" | "timer_resume" | "timer_end" | "completion" | "cancelled" | "attachment_added";
     id: string;
     metadata?: Record<string, unknown>;
     recordedAt: string;
@@ -115,10 +118,12 @@ type MissionPayload = {
   timeLimitMinutes?: number;
   targetApp?: string;
   source?: string;
+  occurrenceDate?: string;
+  scheduledTime?: string;
   energy: number;
   progress: number;
   total: number;
-  status: "done" | "todo" | "in_progress";
+  status: "cancelled" | "done" | "todo" | "in_progress" | "expired";
   tone: string;
 };
 
@@ -216,6 +221,7 @@ export async function createChildApi(familyId: string, child: Omit<ChildAccount,
       name: child.name,
       age: child.age,
       grade: child.grade,
+      avatarUri: child.avatar,
       pin: child.pin
     }),
     method: "POST"
@@ -225,6 +231,25 @@ export async function createChildApi(familyId: string, child: Omit<ChildAccount,
     ...mapChild(data.child),
     avatar: child.avatar,
     pin: child.pin
+  };
+}
+
+export async function updateChildApi(familyId: string, childId: string, child: Partial<Omit<ChildAccount, "id">>) {
+  const data = await request<{ child: ServerChild }>(`/families/${encodeURIComponent(familyId)}/children/${encodeURIComponent(childId)}`, {
+    body: JSON.stringify({
+      name: child.name,
+      age: child.age,
+      grade: child.grade,
+      avatarUri: child.avatar,
+      pin: child.pin
+    }),
+    method: "PATCH"
+  });
+
+  return {
+    ...mapChild(data.child),
+    avatar: child.avatar ?? data.child.avatarUri ?? "Koala",
+    pin: child.pin ?? ""
   };
 }
 
@@ -261,6 +286,14 @@ export async function deleteMissionApi(missionId: string) {
   });
 }
 
+export async function cancelMissionApi(missionId: string) {
+  const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/cancel`, {
+    method: "POST"
+  });
+
+  return mapMission(data.mission);
+}
+
 export type MissionEvidence = {
   audioUri?: string;
   actualMinutes?: number;
@@ -269,6 +302,37 @@ export type MissionEvidence = {
   photoUri?: string;
   startedAt?: string;
 };
+
+export type UploadMissionFilePayload = {
+  fileName: string;
+  kind: "photo" | "audio";
+  mimeType: string;
+  missionId: string;
+  uri: string;
+};
+
+export async function uploadMissionFileApi(payload: UploadMissionFilePayload) {
+  const formData = new FormData();
+  formData.append("kind", payload.kind);
+  formData.append("missionId", payload.missionId);
+  formData.append("file", {
+    name: payload.fileName,
+    type: payload.mimeType,
+    uri: payload.uri
+  } as unknown as Blob);
+
+  const response = await fetch(`${API_BASE_URL}/uploads`, {
+    body: formData,
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    throw new Error(`File upload failed: ${response.status}`);
+  }
+
+  const data = await response.json() as { url: string };
+  return data.url;
+}
 
 export type MissionTimerEventPayload = {
   elapsedSeconds?: number;
@@ -377,6 +441,8 @@ export function toMissionPayload(childId: string, draft: Omit<Mission, "id">): M
     targetApp: draft.targetApp,
     source: draft.source ?? "parent",
     executionType: draft.executionType,
+    occurrenceDate: draft.occurrenceDate,
+    scheduledTime: draft.scheduledTime,
     detail: draft.detail,
     goals: draft.goals,
     rewardMinutes: draft.energy,
@@ -384,7 +450,7 @@ export function toMissionPayload(childId: string, draft: Omit<Mission, "id">): M
     energy: draft.energy,
     progress: draft.progress,
     total: draft.total,
-    status: draft.status === "expired" ? "todo" : draft.status,
+    status: draft.status,
     tone: draft.tone
   };
 }
@@ -431,7 +497,7 @@ function mapChild(child: ServerChild): ChildAccount {
     name: child.name,
     age: child.age,
     grade: child.grade,
-    avatar: "Koala",
+    avatar: child.avatarUri ?? "Koala",
     pin: "",
     pinLength: child.pinLength
   };
@@ -456,9 +522,11 @@ function mapMission(mission: ServerMission): Mission {
     id: mission.id,
     templateId: mission.templateId ?? mission.id,
     occurrenceDate: mission.occurrenceDate ?? new Date().toISOString().slice(0, 10),
+    scheduledTime: mission.scheduledTime,
     icon: mission.icon ?? "📌",
     title: mission.title,
     category: mission.category as MissionCategory,
+    repeatRule: mission.repeatRule,
     target,
     detail: mission.detail ?? planSummary,
     goals: mission.goals?.length ? mission.goals : [target],
@@ -490,11 +558,15 @@ function mapMission(mission: ServerMission): Mission {
 }
 
 function inferExecutionType(mission: Pick<ServerMission, "category" | "targetApp" | "timeLimitMinutes" | "title">): MissionExecutionType {
+  if (["schedule", "reminder", "calendar"].includes(mission.category) || mission.category.startsWith("google_calendar")) {
+    return "schedule";
+  }
+
   if (mission.targetApp || demoTargetAppForMission(mission.title)) {
     return "timed";
   }
 
-  if (mission.timeLimitMinutes && (mission.category === "entertainment" || mission.category === "Movies" || mission.category === "Game")) {
+  if (mission.timeLimitMinutes || mission.category === "entertainment" || mission.category === "Movies" || mission.category === "Game") {
     return "timed";
   }
 

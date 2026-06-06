@@ -1,6 +1,6 @@
-import { Link, Redirect } from "expo-router";
+import { Link, Redirect, router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { fetchMissions } from "../data/api";
 import { childProfile, Mission } from "../data/demo";
 import { profileForChild, useKoalaStore } from "../data/store";
@@ -16,10 +16,11 @@ type CalendarDay = {
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function HomeScreen() {
-  const { activeChild, children, completedCount, isSessionReady, missions, parent, t, todayEnergy } = useKoalaStore();
+  const { activeChild, children, completedCount, isSessionReady, language, missions, parent, setLanguage, t, todayEnergy, updateChild } = useKoalaStore();
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>("day");
   const [calendarMissions, setCalendarMissions] = useState<Mission[]>([]);
   const [isCalendarLoading, setIsCalendarLoading] = useState(false);
+  const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
   const profile = profileForChild(activeChild);
   const totalTasks = missions.length;
   const today = useMemo(() => todayKey(), []);
@@ -109,7 +110,9 @@ export default function HomeScreen() {
       <View style={styles.sidebar}>
         <Text style={styles.logo}>Koala Habit</Text>
         <View style={styles.childCard}>
-          <KoalaAvatar />
+          <Pressable style={styles.avatarButton} onPress={() => setIsProfileEditorOpen(true)}>
+            <KoalaAvatar avatarUri={profile.avatar} />
+          </Pressable>
           <Text style={styles.childName}>{profile.name}</Text>
           <Text style={styles.childSubtext}>{t("growthTree")}</Text>
         </View>
@@ -127,17 +130,7 @@ export default function HomeScreen() {
             <Text style={shared.title}>🌞 {t("goodMorning")}, {profile.name}!</Text>
             <Text style={shared.subtitle}>{t("summerHabits")}</Text>
           </View>
-          <View style={styles.headerActions}>
-            <Link href="/parent" style={shared.navButtonAlt}>
-              <Text style={shared.navButtonAltText}>{t("parent")}</Text>
-            </Link>
-            <Link href="/auth/child-pin" style={shared.navButtonAlt}>
-              <Text style={shared.navButtonAltText}>{t("switchChild")}</Text>
-            </Link>
-            <Link href="/growth-tree" style={shared.navButton}>
-              <Text style={shared.navButtonText}>{t("growthTree")}</Text>
-            </Link>
-          </View>
+          <HomeActionMenu language={language} setLanguage={setLanguage} t={t} />
         </View>
 
         <View style={styles.contentGrid}>
@@ -150,9 +143,6 @@ export default function HomeScreen() {
                 <TaskViewSwitch value={taskViewMode} onChange={setTaskViewMode} t={t} />
               </View>
               <View style={styles.panelActions}>
-                <Link href="/parent" style={styles.smallLink}>
-                  <Text style={styles.smallLinkText}>{t("manage")}</Text>
-                </Link>
                 <Link href="/history" style={styles.smallLink}>
                   <Text style={styles.smallLinkText}>{t("history")}</Text>
                 </Link>
@@ -176,7 +166,7 @@ export default function HomeScreen() {
               {completedCount}/{totalTasks} {t("todayComplete")}
             </Text>
             <View style={styles.growthTrack}>
-              <View style={[styles.growthFill, { width: `${childProfile.treeGrowth}%` }]} />
+              <View style={StyleSheet.flatten([styles.growthFill, { width: `${childProfile.treeGrowth}%` }])} />
             </View>
             <Link href="/reminders" style={styles.reminderLink}>
               <Text style={styles.reminderText}>{t("reminders")}</Text>
@@ -184,6 +174,166 @@ export default function HomeScreen() {
           </View>
         </View>
       </View>
+      <ChildProfileEditor
+        avatarUri={activeChild.avatar}
+        childId={activeChild.id}
+        isOpen={isProfileEditorOpen}
+        pinLength={activeChild.pinLength}
+        t={t}
+        updateChild={updateChild}
+        onClose={() => setIsProfileEditorOpen(false)}
+      />
+    </View>
+  );
+}
+
+function ChildProfileEditor({
+  avatarUri,
+  childId,
+  isOpen,
+  onClose,
+  pinLength,
+  t,
+  updateChild
+}: {
+  avatarUri: string;
+  childId: string;
+  isOpen: boolean;
+  onClose: () => void;
+  pinLength?: number;
+  t: (key: string) => string;
+  updateChild: (childId: string, child: { avatar?: string; pin?: string }) => Promise<unknown>;
+}) {
+  const [draftAvatar, setDraftAvatar] = useState(avatarUri);
+  const [draftPin, setDraftPin] = useState("");
+  const isChinese = t("language") === "语言";
+
+  useEffect(() => {
+    if (isOpen) {
+      setDraftAvatar(avatarUri);
+      setDraftPin("");
+    }
+  }, [avatarUri, isOpen]);
+
+  async function chooseAvatar() {
+    const ImagePicker = await import("expo-image-picker");
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert(t("photo"), "Photo library permission is required.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      mediaTypes: ["images"],
+      quality: 0.75
+    });
+
+    if (!result.canceled && result.assets[0]?.uri) {
+      setDraftAvatar(result.assets[0].uri);
+    }
+  }
+
+  async function saveProfile() {
+    await updateChild(childId, {
+      avatar: draftAvatar,
+      pin: draftPin || undefined
+    });
+    onClose();
+  }
+
+  return (
+    <Modal transparent animationType="fade" supportedOrientations={["landscape-left", "landscape-right"]} visible={isOpen} onRequestClose={onClose}>
+      <View style={styles.profileModalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={styles.profileModal}>
+          <Text style={styles.profileModalTitle}>{isChinese ? "孩子资料" : "Child Profile"}</Text>
+          <Pressable style={styles.profileAvatarPicker} onPress={chooseAvatar}>
+            <KoalaAvatar avatarUri={draftAvatar} large />
+            <Text style={styles.profileAvatarHint}>{t("photo")}</Text>
+          </Pressable>
+          <Text style={styles.profileLabel}>PIN</Text>
+          <TextInput
+            keyboardType="number-pad"
+            maxLength={6}
+            placeholder={`Current length ${pinLength ?? 4}`}
+            style={styles.profileInput}
+            value={draftPin}
+            onChangeText={(value) => setDraftPin(value.replace(/\D/g, ""))}
+          />
+          <View style={styles.profileActions}>
+            <Pressable style={styles.profileSecondaryButton} onPress={onClose}>
+              <Text style={styles.profileSecondaryText}>{t("close")}</Text>
+            </Pressable>
+            <Pressable style={styles.profilePrimaryButton} onPress={saveProfile}>
+              <Text style={styles.profilePrimaryText}>{isChinese ? "保存" : "Save"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function HomeActionMenu({
+  language,
+  setLanguage,
+  t
+}: {
+  language: "en" | "zh";
+  setLanguage: (language: "en" | "zh") => void;
+  t: (key: string) => string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  function navigateTo(path: "/parent" | "/auth/child-pin") {
+    setIsOpen(false);
+    router.push(path);
+  }
+
+  function selectLanguage(nextLanguage: "en" | "zh") {
+    setLanguage(nextLanguage);
+    setIsOpen(false);
+  }
+
+  return (
+    <View style={styles.homeMenuAnchor}>
+      <Pressable accessibilityLabel="Open app menu" style={styles.homeMenuButton} onPress={() => setIsOpen(true)}>
+        <Text style={styles.homeMenuIcon}>☰</Text>
+      </Pressable>
+      <Modal
+        transparent
+        animationType="fade"
+        supportedOrientations={["landscape-left", "landscape-right"]}
+        visible={isOpen}
+        onRequestClose={() => setIsOpen(false)}
+      >
+        <View style={styles.menuOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsOpen(false)} />
+          <View style={styles.homeMenuPanel}>
+            <Pressable style={styles.homeMenuItem} onPress={() => navigateTo("/parent")}>
+              <Text style={styles.homeMenuItemIcon}>👪</Text>
+              <Text style={styles.homeMenuItemText}>{t("parent")}</Text>
+            </Pressable>
+            <Pressable style={styles.homeMenuItem} onPress={() => navigateTo("/auth/child-pin")}>
+              <Text style={styles.homeMenuItemIcon}>🔁</Text>
+              <Text style={styles.homeMenuItemText}>{t("switchChild")}</Text>
+            </Pressable>
+            <View style={styles.homeMenuDivider} />
+            <Text style={styles.homeMenuLabel}>{t("language")}</Text>
+            <View style={styles.languageMenuRow}>
+              <Pressable style={StyleSheet.flatten([styles.languageMenuButton, language === "en" && styles.languageMenuButtonActive])} onPress={() => selectLanguage("en")}>
+                <Text style={StyleSheet.flatten([styles.languageMenuText, language === "en" && styles.languageMenuTextActive])}>EN</Text>
+              </Pressable>
+              <Pressable style={StyleSheet.flatten([styles.languageMenuButton, language === "zh" && styles.languageMenuButtonActive])} onPress={() => selectLanguage("zh")}>
+                <Text style={StyleSheet.flatten([styles.languageMenuText, language === "zh" && styles.languageMenuTextActive])}>中文</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -195,9 +345,9 @@ function TaskViewSwitch({ onChange, t, value }: { onChange: (value: TaskViewMode
         <Pressable
           key={mode}
           onPress={() => onChange(mode)}
-          style={[styles.viewSwitchButton, value === mode && styles.viewSwitchButtonActive]}
+          style={StyleSheet.flatten([styles.viewSwitchButton, value === mode && styles.viewSwitchButtonActive])}
         >
-          <Text style={[styles.viewSwitchText, value === mode && styles.viewSwitchTextActive]}>{t(mode)}</Text>
+          <Text style={StyleSheet.flatten([styles.viewSwitchText, value === mode && styles.viewSwitchTextActive])}>{t(mode)}</Text>
         </Pressable>
       ))}
     </View>
@@ -245,7 +395,7 @@ function TaskSchedule({
             const dayMissions = missionsForDate(missions, day.key);
             const done = dayMissions.filter((mission) => mission.status === "done").length;
             return (
-              <View key={day.key} style={[styles.weekColumn, day.key === today && styles.weekColumnToday]}>
+              <View key={day.key} style={StyleSheet.flatten([styles.weekColumn, day.key === today && styles.weekColumnToday])}>
                 <Text style={styles.weekDay}>{day.label}</Text>
                 <Text style={styles.weekMeta}>{day.dayNumber} · {done}/{dayMissions.length}</Text>
                 {dayMissions.slice(0, 5).map((mission) => (
@@ -265,10 +415,11 @@ function TaskSchedule({
   return (
     <ScrollView style={styles.scheduleScroll} contentContainerStyle={styles.scheduleScrollContent}>
       {missions.map((mission) => {
-        const percent = Math.round((mission.progress / mission.total) * 100);
+        const missionKind = kindForMission(mission);
+          const percent = missionKind === "schedule" ? (mission.status === "done" ? 100 : 0) : Math.round((mission.progress / mission.total) * 100);
         return (
           <Link key={mission.id} href={`/mission/${mission.id}`} asChild>
-            <Pressable style={styles.missionCard}>
+            <Pressable style={StyleSheet.flatten([styles.missionCard, missionKind === "schedule" && styles.scheduleMissionCard])}>
               <View style={styles.missionIconSlot}>
                 <Text style={styles.missionIcon}>{mission.icon}</Text>
               </View>
@@ -278,18 +429,25 @@ function TaskSchedule({
                   <Text numberOfLines={1} style={styles.status}>{missionStatusText(mission.status, t)}</Text>
                 </View>
                 <View style={styles.missionMetaRow}>
-                  <Text numberOfLines={1} style={styles.missionDetail}>{mission.target}</Text>
+                  <Text numberOfLines={1} style={styles.missionDetail}>{missionDetailText(mission)}</Text>
                   <View style={styles.missionPills}>
-                    {mission.targetApp ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.targetApp}</Text> : null}
-                    {mission.timeLimitMinutes ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text> : null}
+                    {missionKind === "schedule" && mission.scheduledTime ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.scheduledTime}</Text> : null}
+                    {missionKind === "timed" && mission.targetApp ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.targetApp}</Text> : null}
+                    {missionKind === "timed" && mission.timeLimitMinutes ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text> : null}
                   </View>
                 </View>
                 <View style={styles.missionProgressRow}>
-                  <View style={styles.progressTrack}>
-                    <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }]} />
-                  </View>
+                  {missionKind === "schedule" ? (
+                    <Text numberOfLines={1} style={styles.actionHint}>Done · Cancel · Edit</Text>
+                  ) : missionKind === "timed" ? (
+                    <Text numberOfLines={1} style={styles.actionHint}>{timedActionText(mission)}</Text>
+                  ) : (
+                    <View style={styles.progressTrack}>
+                      <View style={StyleSheet.flatten([styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }])} />
+                    </View>
+                  )}
                   <Text style={styles.missionCount}>
-                    {formatPoints(mission.energy)}
+                    {missionKind === "schedule" ? formatShortDate(mission.occurrenceDate) : formatPoints(mission.energy)}
                   </Text>
                 </View>
               </View>
@@ -302,7 +460,52 @@ function TaskSchedule({
 }
 
 function missionStatusText(status: Mission["status"], t: (key: string) => string) {
-  return status === "done" ? t("done") : status === "in_progress" ? t("inProgress") : t("todo");
+  return status === "done" ? t("done") : status === "in_progress" ? t("inProgress") : status === "cancelled" ? "Cancelled" : t("todo");
+}
+
+function kindForMission(mission: Mission) {
+  if (mission.executionType === "schedule") {
+    return "schedule";
+  }
+
+  if (mission.executionType === "timed" || mission.timeLimitMinutes || mission.targetApp) {
+    return "timed";
+  }
+
+  return "completion";
+}
+
+function missionDetailText(mission: Mission) {
+  const kind = kindForMission(mission);
+
+  if (kind === "schedule") {
+    return [mission.scheduledTime, mission.target || mission.detail].filter(Boolean).join(" · ");
+  }
+
+  if (kind === "timed") {
+    return mission.activeRun ? `${mission.activeRun.status} · ${remainingRunText(mission.activeRun.endAt)}` : mission.target;
+  }
+
+  return mission.target;
+}
+
+function timedActionText(mission: Mission) {
+  if (mission.activeRun?.status === "paused") {
+    return "Resume";
+  }
+
+  if (mission.activeRun?.status === "running") {
+    return remainingRunText(mission.activeRun.endAt);
+  }
+
+  return mission.status === "done" ? "Done" : "Start";
+}
+
+function remainingRunText(endAt: string) {
+  const seconds = Math.max(0, Math.floor((new Date(endAt).getTime() - Date.now()) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${minutes}:${String(rest).padStart(2, "0")} left`;
 }
 
 function formatPoints(points: number) {
@@ -348,9 +551,13 @@ function dateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function KoalaAvatar() {
+function KoalaAvatar({ avatarUri, large = false }: { avatarUri?: string; large?: boolean }) {
+  if (avatarUri && avatarUri !== "Koala") {
+    return <Image source={{ uri: avatarUri }} style={StyleSheet.flatten([styles.avatarImage, large && styles.avatarImageLarge])} />;
+  }
+
   return (
-    <View style={styles.avatar}>
+    <View style={StyleSheet.flatten([styles.avatar, large && styles.avatarLarge])}>
       <View style={styles.earLeft} />
       <View style={styles.earRight} />
       <View style={styles.face} />
@@ -408,12 +615,28 @@ const styles = StyleSheet.create({
     ...shared.card,
     alignItems: "center"
   },
+  avatarButton: {
+    borderRadius: 56
+  },
   avatar: {
     width: 112,
     height: 104,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 14
+  },
+  avatarLarge: {
+    marginBottom: 0
+  },
+  avatarImage: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    marginBottom: 14,
+    backgroundColor: "#E7F0E2"
+  },
+  avatarImageLarge: {
+    marginBottom: 0
   },
   earLeft: {
     position: "absolute",
@@ -488,13 +711,185 @@ const styles = StyleSheet.create({
   headerCopy: {
     flex: 1
   },
-  headerActions: {
+  homeMenuAnchor: {
+    position: "relative",
+    flexShrink: 0,
+    paddingTop: 2
+  },
+  homeMenuButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.card
+  },
+  homeMenuIcon: {
+    color: palette.ink,
+    fontSize: 22,
+    lineHeight: 24,
+    fontWeight: "900"
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(32, 53, 43, 0.08)"
+  },
+  homeMenuPanel: {
+    position: "absolute",
+    top: 76,
+    right: 28,
+    width: 260,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.card,
+    padding: 10,
+    shadowColor: "#20352B",
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 }
+  },
+  homeMenuItem: {
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
-    flexShrink: 0,
+    gap: 12,
+    borderRadius: 8,
+    paddingHorizontal: 12
+  },
+  homeMenuItemIcon: {
+    width: 28,
+    fontSize: 18,
+    textAlign: "center"
+  },
+  homeMenuItemText: {
+    color: palette.ink,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  homeMenuDivider: {
+    height: 1,
+    backgroundColor: palette.line,
+    marginVertical: 8
+  },
+  homeMenuLabel: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 8,
+    paddingHorizontal: 6,
+    textTransform: "uppercase"
+  },
+  languageMenuRow: {
+    flexDirection: "row",
+    gap: 6,
+    borderRadius: 8,
+    backgroundColor: "#F2EDE5",
+    padding: 4
+  },
+  languageMenuButton: {
+    flex: 1,
+    minHeight: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6
+  },
+  languageMenuButtonActive: {
+    backgroundColor: palette.deepGreen
+  },
+  languageMenuText: {
+    color: palette.muted,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  languageMenuTextActive: {
+    color: "#FFFFFF"
+  },
+  profileModalOverlay: {
+    flex: 1,
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    backgroundColor: "rgba(32, 53, 43, 0.12)",
+    paddingRight: 24,
+    paddingTop: 88
+  },
+  profileModal: {
+    width: 320,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.card,
+    padding: 18,
+    shadowColor: "#20352B",
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 }
+  },
+  profileModalTitle: {
+    color: palette.ink,
+    fontSize: 22,
+    fontWeight: "900",
+    marginBottom: 14
+  },
+  profileAvatarPicker: {
+    alignItems: "center",
+    alignSelf: "center",
+    gap: 8,
+    marginBottom: 14
+  },
+  profileAvatarHint: {
+    color: palette.green,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  profileLabel: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 6
+  },
+  profileInput: {
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    color: palette.ink,
+    fontSize: 18,
+    fontWeight: "900",
+    paddingHorizontal: 12
+  },
+  profileActions: {
+    flexDirection: "row",
     gap: 10,
-    paddingRight: 86,
-    paddingTop: 6
+    marginTop: 16
+  },
+  profileSecondaryButton: {
+    flex: 1,
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    backgroundColor: "#EEF3EA"
+  },
+  profilePrimaryButton: {
+    flex: 1,
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    backgroundColor: palette.deepGreen
+  },
+  profileSecondaryText: {
+    color: palette.green,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  profilePrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900"
   },
   contentGrid: {
     flex: 1,
@@ -595,6 +990,9 @@ const styles = StyleSheet.create({
     gap: 16,
     textDecorationLine: "none"
   },
+  scheduleMissionCard: {
+    backgroundColor: "#F8FAFC"
+  },
   missionIconSlot: {
     width: 54,
     height: 64,
@@ -692,6 +1090,13 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: "900",
     color: palette.ink
+  },
+  actionHint: {
+    flex: 1,
+    minWidth: 0,
+    color: palette.green,
+    fontSize: 13,
+    fontWeight: "900"
   },
   emptyState: {
     borderRadius: 8,

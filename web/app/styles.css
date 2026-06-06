@@ -194,6 +194,16 @@ p {
   align-items: center;
 }
 
+.authCornerActions {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 30;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .iconButton,
 .avatarButton {
   width: 42px;
@@ -216,20 +226,18 @@ p {
   display: none;
 }
 
+.iconButton::-webkit-details-marker {
+  display: none;
+}
+
 .iconButton:hover,
 .avatarButton:hover {
   background: #ebe7df;
 }
 
-.accountMenu {
+.accountMenu,
+.utilityMenu {
   position: relative;
-}
-
-.authPage > .accountMenu {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  z-index: 30;
 }
 
 .avatarButton {
@@ -237,6 +245,13 @@ p {
   background: #3f7d58;
   color: #fff;
   font-size: 15px;
+  font-weight: 900;
+}
+
+.utilityMenu .iconButton {
+  list-style: none;
+  cursor: pointer;
+  font-size: 14px;
   font-weight: 900;
 }
 
@@ -262,10 +277,19 @@ p {
   padding: 14px;
 }
 
-.authPage > .accountMenu .accountPopover {
-  position: fixed;
-  top: 68px;
-  right: 16px;
+.utilityPopover {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  width: max-content;
+  border: 1px solid #ded3c1;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 46px rgba(32, 53, 43, 0.18);
+  padding: 12px;
 }
 
 .accountSummary {
@@ -555,6 +579,46 @@ p {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.formHint {
+  display: block;
+  color: #657365;
+  font-size: 13px;
+  font-weight: 800;
+  margin-top: 6px;
+}
+
+.taskKindSwitch {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  gap: 4px;
+  border: 1px solid #ded3c1;
+  border-radius: 999px;
+  background: #f0ebe2;
+  padding: 4px;
+}
+
+.taskKindSwitch button {
+  min-height: 34px;
+  border-radius: 999px;
+  background: transparent;
+  color: #526050;
+  font-size: 13px;
+  padding: 0 14px;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.taskKindSwitch button.active {
+  background: #20352b;
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(32, 53, 43, 0.18);
+}
+
+.taskKindSwitch button:not(.active):hover {
+  background: #fff;
+  color: #20352b;
 }
 
 .templateRow,
@@ -1182,6 +1246,60 @@ p {
   padding: 14px;
 }
 
+.memberList article {
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.memberAvatar {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #e7f0e2;
+  color: #3f7d58;
+  font-weight: 900;
+}
+
+.memberAvatar.large {
+  width: 86px;
+  height: 86px;
+  font-size: 28px;
+}
+
+.memberAvatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.memberList strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.childAvatarEditor {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.fileButton {
+  width: fit-content;
+  display: inline-grid;
+  place-items: center;
+  min-height: 40px;
+  cursor: pointer;
+  padding: 0 14px;
+}
+
+.fileButton input {
+  display: none;
+}
+
 .progressCard {
   min-width: 280px;
 }
@@ -1278,6 +1396,15 @@ p {
 
   .formHeaderActions {
     justify-content: flex-start;
+  }
+
+  .taskKindSwitch {
+    width: 100%;
+  }
+
+  .taskKindSwitch button {
+    flex: 1;
+    padding: 0 8px;
   }
 
   .wide {

@@ -1,8 +1,10 @@
+import { put } from "@vercel/blob";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
 import {
   addMissionAttachment,
+  cancelMission,
   completeMission,
   createOccurrenceFromTemplate,
   createChild,
@@ -27,6 +29,7 @@ import {
   finishTaskRun,
   resumeTaskRun,
   startTaskRun,
+  updateChild,
   updateMission,
   updateFamily,
   updateTaskTemplate,
@@ -229,10 +232,19 @@ const createFamilySchema = z.object({
 });
 
 const createChildSchema = z.object({
+  avatarUri: z.string().optional(),
   name: z.string().min(1),
   age: z.number().int().min(0).max(18).default(0),
   grade: z.number().int().min(0).max(12).default(0),
   pin: z.string().regex(/^\d{4,6}$/).default("1234")
+});
+
+const updateChildSchema = z.object({
+  avatarUri: z.string().optional(),
+  name: z.string().min(1).optional(),
+  age: z.number().int().min(0).max(18).optional(),
+  grade: z.number().int().min(0).max(12).optional(),
+  pin: z.string().regex(/^\d{4,6}$/).optional()
 });
 
 const childLoginSchema = z.object({
@@ -268,7 +280,7 @@ const createMissionSchema = z.object({
   timeLimitMinutes: z.number().int().min(1).optional(),
   total: z.number().int().min(1).default(1),
   tone: z.string().min(1).default("#3F7D58"),
-  status: z.enum(["done", "todo", "in_progress"]).default("todo")
+  status: z.enum(["cancelled", "done", "todo", "in_progress", "expired"]).default("todo")
 });
 
 const taskTemplateSchema = z.object({
@@ -302,6 +314,8 @@ const completeMissionSchema = z.object({
   note: z.string().optional(),
   startedAt: z.string().datetime().optional()
 });
+
+const uploadKindSchema = z.enum(["photo", "audio", "attachment", "avatar"]);
 
 const timerEventSchema = z.object({
   elapsedSeconds: z.number().int().min(0).optional(),
@@ -338,6 +352,34 @@ const resumeTaskRunSchema = z.object({
 });
 
 app.get("/health", (c) => c.json({ ok: true, db: dbEnabled, service: "koala-habit-server" }));
+
+app.post("/uploads", async (c) => {
+  const formData = await c.req.formData();
+  const file = formData.get("file");
+  const kind = uploadKindSchema.parse(formData.get("kind") ?? "attachment");
+  const missionId = String(formData.get("missionId") ?? "general");
+
+  if (!(file instanceof File)) {
+    return c.json({ error: "File is required" }, 400);
+  }
+
+  const safeMissionId = safePathSegment(missionId);
+  const safeName = safePathSegment(file.name || `${kind}-${Date.now()}`);
+  const pathname = `uploads/${kind}/${safeMissionId}/${Date.now()}-${safeName}`;
+  const blob = await put(pathname, file, {
+    access: "public",
+    addRandomSuffix: true,
+    contentType: file.type || undefined
+  });
+
+  return c.json({
+    contentType: blob.contentType,
+    downloadUrl: blob.downloadUrl,
+    pathname: blob.pathname,
+    size: file.size,
+    url: blob.url
+  });
+});
 
 app.post("/auth/apple/parent", async (c) => {
   const payload = parentAppleSchema.parse(await c.req.json());
@@ -591,6 +633,7 @@ app.post("/families/demo/children", async (c) => {
         name: payload.name,
         age: 9,
         grade: payload.grade,
+        avatarUri: payload.avatarUri,
         pinLength: payload.pin.length,
         companion: {
           name: "Koko",
@@ -623,6 +666,7 @@ app.post("/families/:familyId/children", async (c) => {
       name: payload.name,
       age: payload.age,
       grade: payload.grade,
+      avatarUri: payload.avatarUri,
       pinLength: payload.pin.length,
       companion: {
         name: "Koko",
@@ -646,6 +690,50 @@ app.post("/families/:familyId/children", async (c) => {
 
   if (dbEnabled) {
     return c.json({ child: await createChild(payload, familyId) }, 201);
+  }
+
+  return c.json({ error: "Family not found" }, 404);
+});
+
+app.patch("/families/:familyId/children/:childId", async (c) => {
+  const familyId = c.req.param("familyId");
+  const childId = c.req.param("childId");
+  const payload = updateChildSchema.parse(await c.req.json());
+  const demoFamily = demoFamilies.get(familyId);
+
+  if (demoFamily && !dbEnabled) {
+    const child = demoFamily.children.find((item) => item.id === childId);
+
+    if (!child) {
+      return c.json({ error: "Child not found" }, 404);
+    }
+
+    const childAvatarUri = "avatarUri" in child ? (child as { avatarUri?: string }).avatarUri : undefined;
+    const nextChild = {
+      ...child,
+      avatarUri: payload.avatarUri ?? childAvatarUri,
+      name: payload.name ?? child.name,
+      age: payload.age ?? child.age,
+      grade: payload.grade ?? child.grade,
+      pinLength: payload.pin ? payload.pin.length : child.pinLength
+    };
+    const nextFamily = {
+      ...demoFamily,
+      children: demoFamily.children.map((item) => (item.id === childId ? nextChild : item))
+    };
+    demoFamilies.set(familyId, nextFamily);
+
+    return c.json({ child: nextChild });
+  }
+
+  if (dbEnabled) {
+    const child = await updateChild(childId, payload, familyId);
+
+    if (!child) {
+      return c.json({ error: "Child not found" }, 404);
+    }
+
+    return c.json({ child });
   }
 
   return c.json({ error: "Family not found" }, 404);
@@ -988,6 +1076,38 @@ app.post("/families/demo/missions/:id/reset-timer", async (c) => {
     ...(mission.eventRecords ?? []),
     demoEvent(missionId, "status_change", "Timed task reset", `Timed task "${mission.title}" was reset by parent.`, {
       reset: "timed_task"
+    })
+  ];
+
+  return c.json({ mission });
+});
+
+app.post("/families/demo/missions/:id/cancel", async (c) => {
+  const missionId = c.req.param("id");
+
+  if (dbEnabled) {
+    const mission = await cancelMission(missionId);
+
+    if (!mission) {
+      return c.json({ error: "Mission not found" }, 404);
+    }
+
+    return c.json({ mission });
+  }
+
+  const mission = todayMissions.find((item) => item.id === missionId);
+
+  if (!mission) {
+    return c.json({ error: "Mission not found" }, 404);
+  }
+
+  mission.activeRun = undefined;
+  mission.actualEndAt = new Date().toISOString();
+  mission.status = "cancelled";
+  mission.eventRecords = [
+    ...(mission.eventRecords ?? []),
+    demoEvent(missionId, "cancelled", "Task cancelled", `Task "${mission.title}" was cancelled.`, {
+      status: "skipped"
     })
   ];
 
@@ -1425,6 +1545,14 @@ function timerEventContent(
 
 function isLimitedTimerMission(mission: Pick<DemoMission, "targetApp" | "timeLimitMinutes">) {
   return Boolean(mission.timeLimitMinutes || mission.targetApp);
+}
+
+function safePathSegment(value: string) {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "file";
 }
 
 export default app;

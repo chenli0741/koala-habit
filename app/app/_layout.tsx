@@ -1,9 +1,8 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { AppState, StyleSheet, View } from "react-native";
+import { AppState } from "react-native";
 import { KoalaStoreProvider } from "../data/store";
-import { LanguageSwitch } from "../ui/LanguageSwitch";
 
 export default function RootLayout() {
   useNotificationDebugLogs();
@@ -12,9 +11,6 @@ export default function RootLayout() {
     <KoalaStoreProvider>
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false }} />
-      <View pointerEvents="box-none" style={styles.languageCorner}>
-        <LanguageSwitch />
-      </View>
     </KoalaStoreProvider>
   );
 }
@@ -114,12 +110,3 @@ function debugNotification(message: string, data?: Record<string, unknown>) {
 function readableError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
-
-const styles = StyleSheet.create({
-  languageCorner: {
-    position: "absolute",
-    right: 18,
-    top: 18,
-    zIndex: 20
-  }
-});

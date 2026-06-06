@@ -2,6 +2,7 @@ import * as SecureStore from "expo-secure-store";
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
 import {
   addMissionAttachmentApi,
+  cancelMissionApi,
   completeMissionApi,
   createChildApi,
   createFamilyApi,
@@ -26,6 +27,7 @@ import {
   startEntertainmentRunApi,
   StartEntertainmentRunPayload,
   toMissionPayload,
+  updateChildApi,
   updateMissionApi
 } from "./api";
 import { childProfile, Mission, MissionCategory, MissionExecutionType, TaskAttachment, TaskEventType } from "./demo";
@@ -65,6 +67,10 @@ type MissionDraft = {
   detail: string;
   goals: string[];
   energy: number;
+  occurrenceDate?: string;
+  repeatRule?: string;
+  scheduledTime?: string;
+  source?: string;
   timeLimitMinutes?: number;
   total: number;
   tone: string;
@@ -86,12 +92,14 @@ type KoalaStore = {
   signInGoogleParent: (name: string, email: string, idToken?: string) => Promise<void>;
   signInParent: (name: string, email: string) => Promise<void>;
   createChild: (child: Omit<ChildAccount, "id">) => Promise<ChildAccount>;
+  updateChild: (childId: string, child: Partial<Omit<ChildAccount, "id">>) => Promise<ChildAccount | null>;
   loginChild: (childId: string, pin: string) => Promise<boolean>;
   logout: () => Promise<void>;
   addMission: (draft: MissionDraft) => Promise<void>;
   addMissionAttachment: (missionId: string, attachment: TaskAttachment) => Promise<void>;
   updateMission: (missionId: string, draft: MissionDraft) => Promise<void>;
   deleteMission: (missionId: string) => Promise<void>;
+  cancelMission: (missionId: string) => Promise<void>;
   completeMission: (missionId: string, evidence?: MissionEvidence) => Promise<void>;
   recordMissionTimerEvent: (missionId: string, payload: MissionTimerEventPayload) => Promise<void>;
   startEntertainmentRun: (missionId: string, payload: StartEntertainmentRunPayload) => Promise<void>;
@@ -370,6 +378,45 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           return newChild;
         }
       },
+      updateChild: async (childId, child) => {
+        const currentChild = childAccounts.find((item) => item.id === childId);
+
+        if (!currentChild) {
+          return null;
+        }
+
+        const optimisticChild = {
+          ...currentChild,
+          ...child,
+          pinLength: child.pin ? child.pin.length : currentChild.pinLength
+        };
+        const optimisticChildren = childAccounts.map((item) => (item.id === childId ? optimisticChild : item));
+        setChildAccounts(optimisticChildren);
+
+        try {
+          const storedChild = await updateChildApi(family?.id ?? "demo", childId, child);
+          const nextChild = {
+            ...optimisticChild,
+            ...storedChild,
+            avatar: child.avatar ?? storedChild.avatar,
+            pin: child.pin ?? optimisticChild.pin
+          };
+          const nextChildren = optimisticChildren.map((item) => (item.id === childId ? nextChild : item));
+          setChildAccounts(nextChildren);
+
+          if (parent) {
+            await saveParentSession({ token: sessionToken ?? undefined, family, parent, children: nextChildren });
+          }
+
+          return nextChild;
+        } catch {
+          if (parent) {
+            await saveParentSession({ token: sessionToken ?? undefined, family, parent, children: optimisticChildren });
+          }
+
+          return optimisticChild;
+        }
+      },
       loginChild: async (childId, pin) => {
         const child = childAccounts.find((item) => item.id === childId);
 
@@ -413,7 +460,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           executionType,
           id: missionId,
           templateId: `template-${missionId}`,
-          occurrenceDate: new Date().toISOString().slice(0, 10),
+          occurrenceDate: draft.occurrenceDate ?? new Date().toISOString().slice(0, 10),
           planDetail: {
             id: `plan-${missionId}`,
             attachments: [],
@@ -514,6 +561,33 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           if (deletedMission) {
             setMissionItems((current) => [...current, deletedMission]);
           }
+        }
+      },
+      cancelMission: async (missionId) => {
+        const recordedAt = new Date().toISOString();
+        setMissionItems((current) =>
+          current.map((mission) =>
+            mission.id === missionId
+              ? {
+                  ...mission,
+                  activeRun: undefined,
+                  actualEndAt: recordedAt,
+                  eventRecords: [
+                    ...mission.eventRecords,
+                    taskEvent(missionId, "cancelled", "Task cancelled", `Task "${mission.title}" was cancelled.`, { status: "skipped" })
+                  ],
+                  occurrenceStatus: "skipped" as const,
+                  status: "cancelled" as const
+                }
+              : mission
+          )
+        );
+
+        try {
+          const storedMission = await cancelMissionApi(missionId);
+          setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
+        } catch {
+          setMissionItems((current) => current);
         }
       },
       completeMission: async (missionId, evidence) => {
@@ -877,6 +951,13 @@ function pendingFamilyForParent(parent: ParentAccount): FamilyAccount {
 }
 
 function normalizeMissionProgress(mission: Mission): Mission {
+  if (mission.occurrenceStatus === "skipped" || mission.status === "cancelled") {
+    return {
+      ...mission,
+      status: "cancelled"
+    };
+  }
+
   return {
     ...mission,
     status: mission.progress >= mission.total ? "done" : mission.progress > 0 ? "in_progress" : "todo"
@@ -924,7 +1005,11 @@ function isLimitedTimerMission(mission: Pick<Mission, "executionType" | "targetA
 }
 
 function inferDraftExecutionType(draft: Pick<MissionDraft, "category" | "targetApp" | "timeLimitMinutes">): MissionExecutionType {
-  if (draft.targetApp || draft.category === "entertainment" || draft.category === "Movies" || draft.category === "Game") {
+  if (["schedule", "reminder", "calendar"].includes(draft.category)) {
+    return "schedule";
+  }
+
+  if (draft.targetApp || draft.timeLimitMinutes || draft.category === "entertainment" || draft.category === "Movies" || draft.category === "Game") {
     return "timed";
   }
 

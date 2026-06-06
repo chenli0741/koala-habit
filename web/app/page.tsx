@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useId, useMemo, useState } from "react";
+import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 type Child = {
   id: string;
   name: string;
   age: number;
+  avatarUri?: string;
   grade: number;
   pinLength?: number;
 };
@@ -23,7 +24,7 @@ type Mission = {
   icon?: string;
   title: string;
   category: string;
-  executionType?: "completion" | "submission" | "timed";
+  executionType?: "completion" | "submission" | "timed" | "schedule";
   target: string;
   targetApp?: string;
   detail?: string;
@@ -44,7 +45,7 @@ type Mission = {
   source?: string;
   timeLimitMinutes?: number;
   total?: number;
-  status: "done" | "todo" | "in_progress" | "expired";
+  status: "cancelled" | "done" | "todo" | "in_progress" | "expired";
   tone?: string;
   planDetail?: {
     attachments?: TaskAttachment[];
@@ -96,6 +97,7 @@ type AuthMode = "login" | "register";
 type AdminView = "overview" | "tasks" | "templates" | "family" | "rules" | "history";
 type CalendarView = "day" | "week" | "month";
 type TaskLayout = "left" | "split" | "right";
+type TaskKind = "completion" | "timed" | "schedule";
 type Language = "en" | "zh";
 
 type TaskForm = {
@@ -104,6 +106,8 @@ type TaskForm = {
   category: string;
   detail: string;
   energy: string;
+  endDate: string;
+  endTime: string;
   goals: string;
   icon: string;
   materials: string;
@@ -112,6 +116,7 @@ type TaskForm = {
   repeatRule: string;
   scheduledTime: string;
   source: string;
+  suggestedMinutes: string;
   target: string;
   targetApp: string;
   timeLimitMinutes: string;
@@ -164,6 +169,13 @@ const zh: Record<string, string> = {
   attachments: "附件",
   calendar: "日历",
   calendarTasks: "日历任务",
+  categoryCalendar: "日程",
+  categoryChinese: "中文",
+  categoryEng: "英文",
+  categoryGame: "娱乐",
+  categoryMath: "数学",
+  categoryOther: "其他",
+  categorySports: "运动",
   category: "分类",
   childName: "孩子姓名",
   childProfile: "孩子资料",
@@ -178,6 +190,7 @@ const zh: Record<string, string> = {
   discardTaskEditPrompt: "任务编辑中，放弃修改吗？",
   editTask: "编辑任务",
   expandEditor: "...",
+  edit: "编辑",
   family: "家庭",
   goals: "目标清单",
   googleSaved: "Google 登录已保存。",
@@ -186,6 +199,7 @@ const zh: Record<string, string> = {
   layout: "布局",
   leftPanel: "左侧",
   login: "登录",
+  locationNotes: "地点 / 备注",
   logout: "退出登录",
   materials: "材料",
   newTemplate: "新模板",
@@ -216,6 +230,11 @@ const zh: Record<string, string> = {
   tasks: "任务",
   themeColor: "主题颜色",
   time: "时间",
+  startDate: "开始日期",
+  startTime: "开始时间",
+  endDate: "结束日期",
+  endTime: "结束时间",
+  suggestedDuration: "建议时长",
   timeLimit: "限时分钟",
   targetApp: "目标 App",
   totalSteps: "步骤数",
@@ -248,6 +267,7 @@ const zh: Record<string, string> = {
   parentSource: "家长创建",
   progress: "进度",
   review: "审核",
+  reminderNotes: "提醒 / 备注",
   rightPanel: "右侧",
   rewardRules: "奖励与权限",
   shared: "他人发送",
@@ -264,6 +284,9 @@ const zh: Record<string, string> = {
   taskConfirmed: "任务已确认。",
   taskCreated: "任务已创建。",
   taskDeleted: "任务已删除。",
+  taskKindCompletion: "柔性完成",
+  taskKindSchedule: "日程提醒",
+  taskKindTimed: "限时执行",
   timedTaskReset: "限时任务状态已重置。",
   taskUpdated: "任务已更新。",
   splitView: "分屏",
@@ -339,12 +362,13 @@ const starterTemplates = [
 ];
 
 const categoryOptions = [
-  { label: "数学 Math", value: "Math" },
-  { label: "中文 Chinese", value: "Chinese" },
-  { label: "英文 Eng", value: "Eng" },
-  { label: "运动 Sports", value: "Sports" },
-  { label: "娱乐 Game", value: "Game" },
-  { label: "其他 Other", value: "Other" }
+  { labelKey: "categoryMath", value: "Math" },
+  { labelKey: "categoryChinese", value: "Chinese" },
+  { labelKey: "categoryEng", value: "Eng" },
+  { labelKey: "categorySports", value: "Sports" },
+  { labelKey: "categoryGame", value: "Game" },
+  { labelKey: "categoryCalendar", value: "calendar" },
+  { labelKey: "categoryOther", value: "Other" }
 ];
 
 const sourceOptions = [
@@ -373,6 +397,7 @@ const weekDayOptions = [
   { code: "SA", label: "六" }
 ];
 const workDailyRepeatRule = "FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR";
+const noRepeatRule = "FREQ=NONE";
 
 const emptyTaskForm: TaskForm = {
   assessment: "Parent confirmation with optional photo or audio proof",
@@ -380,21 +405,87 @@ const emptyTaskForm: TaskForm = {
   category: "Math",
   detail: "What should the child do? Add steps, examples, and quality expectations.",
   energy: "10",
+  endDate: "",
+  endTime: "",
   goals: "Finish the task\nSubmit proof\nTell one reflection",
   icon: "📌",
   materials: "Book, worksheet, pencil",
   notes: "Parent review notes and reminders",
-  occurrenceDate: todayKey(),
-  repeatRule: workDailyRepeatRule,
-  scheduledTime: "16:00",
+  occurrenceDate: "",
+  repeatRule: "",
+  scheduledTime: "",
   source: "parent",
+  suggestedMinutes: "",
   target: "Daily goal",
   targetApp: "",
-  timeLimitMinutes: "20",
+  timeLimitMinutes: "",
   title: "",
   tone: "#3F7D58",
   total: "1",
   vocabulary: "new word, sentence, example"
+};
+
+const taskKindOptions: Array<{ kind: TaskKind; labelKey: string }> = [
+  { kind: "completion", labelKey: "taskKindCompletion" },
+  { kind: "timed", labelKey: "taskKindTimed" },
+  { kind: "schedule", labelKey: "taskKindSchedule" }
+];
+
+const taskKindDefaults: Record<TaskKind, Partial<TaskForm>> = {
+  completion: {
+    assessment: "Parent confirmation with optional photo, audio, or note",
+    category: "Other",
+    detail: "",
+    goals: "Mark complete\nSubmit note or proof if needed",
+    icon: "📌",
+    materials: "",
+    notes: "",
+    repeatRule: "",
+    source: "parent",
+    suggestedMinutes: "",
+    target: "Mark complete",
+    targetApp: "",
+    timeLimitMinutes: "",
+    tone: "#3F7D58",
+    total: "1",
+    vocabulary: ""
+  },
+  timed: {
+    assessment: "Timed execution record with parent review",
+    category: "Game",
+    detail: "",
+    goals: "Start\nPause or resume if needed\nEnd on time",
+    icon: "⏱️",
+    materials: "",
+    notes: "",
+    repeatRule: "",
+    source: "parent",
+    suggestedMinutes: "",
+    target: "Use within the time limit",
+    timeLimitMinutes: "",
+    tone: "#B75F4A",
+    total: "1",
+    vocabulary: ""
+  },
+  schedule: {
+    assessment: "Calendar reminder",
+    category: "calendar",
+    detail: "",
+    energy: "0",
+    goals: "Attend",
+    icon: "📅",
+    materials: "",
+    notes: "",
+    repeatRule: "",
+    source: "calendar",
+    suggestedMinutes: "",
+    target: "Scheduled event",
+    targetApp: "",
+    timeLimitMinutes: "",
+    tone: "#4B6FA8",
+    total: "1",
+    vocabulary: ""
+  }
 };
 
 const emptyTemplateForm: TemplateForm = {
@@ -403,7 +494,7 @@ const emptyTemplateForm: TemplateForm = {
   energy: "10",
   goals: "Finish the task\nSubmit proof\nTell one reflection",
   icon: "📌",
-  repeatRule: workDailyRepeatRule,
+  repeatRule: noRepeatRule,
   scheduledTime: "16:00",
   source: "parent",
   target: "Daily goal",
@@ -430,11 +521,14 @@ export default function Page() {
     password: "secret123"
   });
   const [childForm, setChildForm] = useState({
+    avatarUri: "",
     grade: "3",
     name: "",
     pin: "1234"
   });
+  const [editingChildId, setEditingChildId] = useState<string | null>(null);
   const [taskForm, setTaskForm] = useState<TaskForm>(emptyTaskForm);
+  const [taskKind, setTaskKind] = useState<TaskKind>("completion");
   const [templateForm, setTemplateForm] = useState<TemplateForm>(emptyTemplateForm);
   const [editingMissionId, setEditingMissionId] = useState<string | null>(null);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -585,6 +679,7 @@ export default function Page() {
 
     await request(`/families/${encodeURIComponent(family.id)}/children`, {
       body: JSON.stringify({
+        avatarUri: childForm.avatarUri || undefined,
         grade: Number(childForm.grade),
         name: childForm.name,
         pin: childForm.pin
@@ -592,7 +687,42 @@ export default function Page() {
       method: "POST"
     });
     setMessage(t("childProfileCreated"));
+    setChildForm({ avatarUri: "", grade: "3", name: "", pin: "1234" });
+    setEditingChildId(null);
     await loadFamily(family.id);
+  }
+
+  async function saveChildProfile(event: FormEvent) {
+    event.preventDefault();
+
+    if (!family || !editingChildId) {
+      await createChild(event);
+      return;
+    }
+
+    await request(`/families/${encodeURIComponent(family.id)}/children/${encodeURIComponent(editingChildId)}`, {
+      body: JSON.stringify({
+        avatarUri: childForm.avatarUri || undefined,
+        grade: Number(childForm.grade),
+        name: childForm.name,
+        pin: childForm.pin || undefined
+      }),
+      method: "PATCH"
+    });
+    setMessage(t("saveChanges"));
+    setEditingChildId(null);
+    setChildForm({ avatarUri: "", grade: "3", name: "", pin: "1234" });
+    await loadFamily(family.id);
+  }
+
+  function startEditChild(child: Child) {
+    setEditingChildId(child.id);
+    setChildForm({
+      avatarUri: child.avatarUri ?? "",
+      grade: String(child.grade),
+      name: child.name,
+      pin: ""
+    });
   }
 
   async function submitTask(event: FormEvent) {
@@ -604,28 +734,37 @@ export default function Page() {
       return;
     }
 
-    const body = JSON.stringify({
-      category: normalizeCategory(taskForm.category),
+    const normalizedForm = normalizeTaskFormForKind(taskForm, taskKind);
+    const payload: Record<string, unknown> = {
+      category: normalizeCategory(normalizedForm.category),
       childId: activeChild.id,
-      attachments: taskForm.attachments,
-      detail: buildTaskDetail(taskForm),
-      energy: Number(taskForm.energy),
-      goals: toList(taskForm.goals),
-      icon: taskForm.icon,
-      occurrenceDate: taskForm.occurrenceDate,
+      attachments: normalizedForm.attachments,
+      detail: buildTaskDetail(normalizedForm),
+      energy: Number(normalizedForm.energy),
+      goals: toList(normalizedForm.goals),
+      icon: normalizedForm.icon,
       progress: 0,
-      repeatRule: taskForm.repeatRule,
-      rewardMinutes: Number(taskForm.energy),
-      scheduledTime: taskForm.scheduledTime,
-      source: taskForm.source,
+      repeatRule: normalizedForm.repeatRule || noRepeatRule,
+      rewardMinutes: Number(normalizedForm.energy),
+      source: normalizedForm.source,
       status: "todo",
-      target: taskForm.target,
-      targetApp: normalizeTargetApps(taskForm.targetApp) || undefined,
-      timeLimitMinutes: taskForm.timeLimitMinutes ? Number(taskForm.timeLimitMinutes) : undefined,
-      title: taskForm.title || t("newTask"),
-      tone: taskForm.tone,
-      total: Math.max(1, Number(taskForm.total))
-    });
+      target: normalizedForm.target,
+      targetApp: normalizeTargetApps(normalizedForm.targetApp) || undefined,
+      timeLimitMinutes: taskKind === "timed" && (normalizedForm.suggestedMinutes || normalizedForm.timeLimitMinutes) ? Number(normalizedForm.suggestedMinutes || normalizedForm.timeLimitMinutes) : undefined,
+      title: normalizedForm.title || t("newTask"),
+      tone: normalizedForm.tone,
+      total: Math.max(1, Number(normalizedForm.total))
+    };
+
+    if (normalizedForm.occurrenceDate) {
+      payload.occurrenceDate = normalizedForm.occurrenceDate;
+    }
+
+    if (normalizedForm.scheduledTime) {
+      payload.scheduledTime = normalizedForm.scheduledTime;
+    }
+
+    const body = JSON.stringify(payload);
 
     if (editingMissionId) {
       await request(`/families/demo/missions/${editingMissionId}`, { body, method: "PATCH" });
@@ -636,6 +775,7 @@ export default function Page() {
     }
 
     setTaskForm(emptyTaskForm);
+    setTaskKind("completion");
     setEditingMissionId(null);
     setShowTaskForm(false);
     await loadFamily();
@@ -731,7 +871,8 @@ export default function Page() {
   }
 
   function startNewTask() {
-    setTaskForm({ ...emptyTaskForm, occurrenceDate: calendarAnchorDate });
+    setTaskKind("completion");
+    setTaskForm(taskFormForKind("completion", emptyTaskForm));
     setEditingMissionId(null);
     setShowTaskForm(true);
     setAdminView("tasks");
@@ -749,8 +890,11 @@ export default function Page() {
     const structuredVocabulary = (mission.planDetail?.vocabulary ?? []).join(", ");
     const detailParts = splitTaskDetail(mission.detail ?? "", {
       assessment: emptyTaskForm.assessment,
+      endDate: "",
+      endTime: "",
       materials: structuredMaterials,
       notes: structuredNotes,
+      suggestedMinutes: mission.timeLimitMinutes ? String(mission.timeLimitMinutes) : "",
       vocabulary: structuredVocabulary
     });
 
@@ -761,14 +905,17 @@ export default function Page() {
       category: normalizeCategory(mission.category),
       detail: detailParts.detail,
       energy: String(mission.energy),
+      endDate: detailParts.endDate,
+      endTime: detailParts.endTime,
       goals: (mission.goals ?? []).join("\n"),
       icon: mission.icon ?? "📌",
       materials: detailParts.materials,
       notes: detailParts.notes,
-      occurrenceDate: mission.occurrenceDate?.slice(0, 10) ?? todayKey(),
-      repeatRule: mission.repeatRule ?? "FREQ=DAILY",
-      scheduledTime: mission.scheduledTime ?? "16:00",
+      occurrenceDate: mission.occurrenceDate?.slice(0, 10) ?? "",
+      repeatRule: mission.repeatRule ?? "",
+      scheduledTime: mission.scheduledTime ?? "",
       source: mission.source ?? "parent",
+      suggestedMinutes: detailParts.suggestedMinutes,
       target: mission.target,
       targetApp: mission.targetApp ?? "",
       timeLimitMinutes: mission.timeLimitMinutes ? String(mission.timeLimitMinutes) : "",
@@ -777,10 +924,16 @@ export default function Page() {
       total: String(mission.total ?? 1),
       vocabulary: detailParts.vocabulary
     });
+    setTaskKind(kindForMission(mission));
     setEditingMissionId(mission.id);
     setSelectedMissionId(mission.id);
     setShowTaskForm(true);
     setAdminView("tasks");
+  }
+
+  function changeTaskKind(kind: TaskKind) {
+    setTaskKind(kind);
+    setTaskForm((current) => taskFormForKind(kind, current));
   }
 
   function shouldLeaveTaskEdit(nextMissionId?: string) {
@@ -806,6 +959,20 @@ export default function Page() {
     }
 
     setSelectedMissionId(missionId);
+  }
+
+  function openMissionDetail(missionId: string) {
+    if (!shouldLeaveTaskEdit(missionId)) {
+      return;
+    }
+
+    setEditingMissionId(null);
+    setShowTaskForm(false);
+    setSelectedMissionId(missionId);
+
+    if (taskLayout === "left") {
+      setTaskLayout("split");
+    }
   }
 
   function selectDateSafely(date: string) {
@@ -851,17 +1018,18 @@ export default function Page() {
   if (!isSignedIn) {
     return (
       <main className="authPage">
-        <AccountMenu
-          account={account}
-          family={family}
-          isSignedIn={isSignedIn}
-          language={language}
-          t={t}
-          onAuthMode={selectAuthMode}
-          onNavigate={selectAdminView}
-          onLanguage={setLanguage}
-          onLogout={logout}
-        />
+        <div className="authCornerActions">
+          <LanguageMenu language={language} onLanguage={setLanguage} />
+          <AccountMenu
+            account={account}
+            family={family}
+            isSignedIn={isSignedIn}
+            t={t}
+            onAuthMode={selectAuthMode}
+            onNavigate={selectAdminView}
+            onLogout={logout}
+          />
+        </div>
         <section className="authPanel">
           <div className="brandBlock">
             <p className="kicker">Koala Habit Admin</p>
@@ -911,7 +1079,6 @@ export default function Page() {
           {[
             ["overview", t("overview")],
             ["tasks", t("tasks")],
-            ["templates", t("templates")],
             ["history", t("history")]
           ].map(([key, label]) => (
             <button key={key} className={adminView === key ? "active" : ""} type="button" onClick={() => setAdminView(key as AdminView)}>
@@ -922,16 +1089,14 @@ export default function Page() {
         <div className="headerActions">
           <button className="iconButton" type="button" aria-label="Help">?</button>
           <button className="iconButton" type="button" aria-label="Settings">⚙</button>
-          <button className="iconButton" type="button" aria-label="Apps">▦</button>
+          <LanguageMenu language={language} onLanguage={setLanguage} />
           <AccountMenu
             account={account}
             family={family}
             isSignedIn={isSignedIn}
-            language={language}
             t={t}
             onAuthMode={selectAuthMode}
             onNavigate={selectAdminView}
-            onLanguage={setLanguage}
             onLogout={logout}
           />
         </div>
@@ -991,6 +1156,7 @@ export default function Page() {
                   type="button"
                   onClick={() => {
                     setTaskForm((current) => ({ ...current, ...template, attachments: [], detail: `${template.target} every day.`, occurrenceDate: calendarAnchorDate }));
+                    setTaskKind("completion");
                     setEditingMissionId(null);
                     setShowTaskForm(true);
                   }}
@@ -1015,11 +1181,12 @@ export default function Page() {
                   key={mission.id}
                   className={selectedMission?.id === mission.id ? "selected" : ""}
                   onClick={() => selectMissionSafely(mission.id)}
+                  onDoubleClick={() => openMissionDetail(mission.id)}
                 >
                   <div className="taskIcon" style={{ background: mission.tone ?? "#3F7D58" }}>{mission.icon}</div>
                   <div>
                     <strong>{mission.title}</strong>
-                    <span>{formatMissionTime(mission)} · {formatCategory(mission.category)} · {formatSource(mission.source, t)} · {mission.target}</span>
+                    <span>{formatMissionTime(mission)} · {formatCategory(mission.category, t)} · {formatSource(mission.source, t)} · {mission.target}</span>
                     <p>{mission.detail ?? mission.target}</p>
                   </div>
                   <span className={`status ${mission.status}`}>{mission.status}</span>
@@ -1048,9 +1215,11 @@ export default function Page() {
                   setShowTaskForm(false);
                 }}
                 onChange={setTaskForm}
+                onKindChange={changeTaskKind}
                 onResetTimedTask={editingMissionId ? () => resetTimedTask(editingMissionId) : undefined}
                 onSubmit={submitTask}
                 t={t}
+                taskKind={taskKind}
               />
             ) : selectedMission ? (
               <TaskDetail mission={selectedMission} onComplete={completeTask} onDelete={deleteTask} onEdit={startEditTask} onResetTimedTask={resetTimedTask} t={t} />
@@ -1095,7 +1264,7 @@ export default function Page() {
                   <div className="taskIcon" style={{ background: template.tone }}>{template.icon}</div>
                   <div>
                     <strong>{template.title}</strong>
-                    <span>{formatRepeatRule(template.repeatRule, t)} · {template.scheduledTime || t("anyTime")} · {formatCategory(template.category)}</span>
+                    <span>{formatRepeatRule(template.repeatRule, t)} · {template.scheduledTime || t("anyTime")} · {formatCategory(template.category, t)}</span>
                     <p>{template.target}</p>
                   </div>
                   <span className={`status ${template.active ? "done" : "todo"}`}>{template.active ? "active" : "paused"}</span>
@@ -1140,25 +1309,44 @@ export default function Page() {
             <div className="memberList">
               {family?.parent ? (
                 <article>
-                  <strong>{family.parent.name}</strong>
-                  <span>{family.parent.email} · {family.parent.provider} · Parent admin</span>
+                  <div className="memberAvatar"><span>{initials(family.parent.name)}</span></div>
+                  <div>
+                    <strong>{family.parent.name}</strong>
+                    <span>{family.parent.email} · {family.parent.provider} · Parent admin</span>
+                  </div>
                 </article>
               ) : null}
               {family?.children.map((child) => (
                 <article key={child.id}>
-                  <strong>{child.name}</strong>
-                  <span>Grade {child.grade} · Child executor · PIN length {child.pinLength ?? 4}</span>
+                  <div className="memberAvatar">
+                    {child.avatarUri ? <img alt="" src={child.avatarUri} /> : <span>{initials(child.name)}</span>}
+                  </div>
+                  <div>
+                    <strong>{child.name}</strong>
+                    <span>Grade {child.grade} · Child executor · PIN length {child.pinLength ?? 4}</span>
+                  </div>
+                  <button className="secondary" type="button" onClick={() => startEditChild(child)}>{t("edit")}</button>
                 </article>
               ))}
             </div>
           </div>
-          <form className="panel formStack" onSubmit={createChild}>
+          <form className="panel formStack" onSubmit={saveChildProfile}>
             <p className="kicker">{t("childProfile")}</p>
-            <h2>{t("createChild")}</h2>
+            <h2>{editingChildId ? t("saveChanges") : t("createChild")}</h2>
+            <div className="childAvatarEditor">
+              <div className="memberAvatar large">
+                {childForm.avatarUri ? <img alt="" src={childForm.avatarUri} /> : <span>{initials(childForm.name || "K")}</span>}
+              </div>
+              <label className="secondary fileButton">
+                {language === "zh" ? "上传头像" : "Upload avatar"}
+                <input accept="image/*" type="file" onChange={(event) => void readChildAvatarFile(event.currentTarget.files?.[0], (avatarUri) => setChildForm((current) => ({ ...current, avatarUri })))} />
+              </label>
+            </div>
             <label>{t("childName")}<input value={childForm.name} onChange={(event) => setChildForm({ ...childForm, name: event.target.value })} /></label>
             <label>{t("grade")}<input value={childForm.grade} onChange={(event) => setChildForm({ ...childForm, grade: event.target.value })} /></label>
-            <label>PIN<input value={childForm.pin} onChange={(event) => setChildForm({ ...childForm, pin: event.target.value.replace(/\D/g, "") })} /></label>
+            <label>PIN<input placeholder={editingChildId ? (language === "zh" ? "留空则不修改" : "Leave blank to keep current PIN") : "1234"} value={childForm.pin} onChange={(event) => setChildForm({ ...childForm, pin: event.target.value.replace(/\D/g, "") })} /></label>
             <button type="submit">{t("saveChanges")}</button>
+            {editingChildId ? <button className="secondary" type="button" onClick={() => { setEditingChildId(null); setChildForm({ avatarUri: "", grade: "3", name: "", pin: "1234" }); }}>{t("cancel")}</button> : null}
           </form>
         </section>
       ) : null}
@@ -1231,7 +1419,7 @@ function OverviewPage({
   })).filter((row) => row.count > 0);
   const categoryRows = categoryOptions.map((option) => ({
     count: missions.filter((mission) => normalizeCategory(mission.category) === option.value).length,
-    label: option.label,
+    label: formatCategory(option.value, t),
     value: option.value
   })).filter((row) => row.count > 0);
 
@@ -1275,7 +1463,7 @@ function OverviewPage({
                 <div className="taskIcon" style={{ background: mission.tone ?? "#3F7D58" }}>{mission.icon}</div>
                 <div>
                   <strong>{mission.title}</strong>
-                  <span>{formatMissionTime(mission)} · {formatCategory(mission.category)} · {formatSource(mission.source, t)}</span>
+                  <span>{formatMissionTime(mission)} · {formatCategory(mission.category, t)} · {formatSource(mission.source, t)}</span>
                 </div>
                 <span className={`status ${mission.status}`}>{mission.status}</span>
               </article>
@@ -1399,19 +1587,26 @@ function TaskFormView({
   form,
   onCancel,
   onChange,
+  onKindChange,
   onResetTimedTask,
   onSubmit,
-  t
+  t,
+  taskKind
 }: {
   editing: boolean;
   form: TaskForm;
   onCancel: () => void;
   onChange: (form: TaskForm) => void;
+  onKindChange: (kind: TaskKind) => void;
   onResetTimedTask?: () => void;
   onSubmit: (event: FormEvent) => void;
   t: (key: string) => string;
+  taskKind: TaskKind;
 }) {
   const canResetTimedTask = editing && Boolean(onResetTimedTask) && Boolean(form.timeLimitMinutes || form.targetApp);
+  const isFlexible = taskKind === "completion";
+  const isTimed = taskKind === "timed";
+  const isSchedule = taskKind === "schedule";
 
   return (
     <form className="taskForm" onSubmit={onSubmit}>
@@ -1419,6 +1614,9 @@ function TaskFormView({
         <div>
           <p className="kicker">{editing ? t("editTask") : t("addTask")}</p>
           <h2>{t("taskContent")}</h2>
+          <span className="formHint">
+            {taskKindHint(taskKind, t)}
+          </span>
         </div>
         <div className="formHeaderActions">
           {canResetTimedTask ? (
@@ -1427,30 +1625,46 @@ function TaskFormView({
           <button className="secondary" type="button" onClick={onCancel}>{t("cancel")}</button>
         </div>
       </div>
+      <div className="taskKindSwitch" aria-label="Task type">
+        {taskKindOptions.map((option) => (
+          <button
+            key={option.kind}
+            className={taskKind === option.kind ? "active" : ""}
+            type="button"
+            onClick={() => onKindChange(option.kind)}
+          >
+            {taskKindLabel(option.kind, t)}
+          </button>
+        ))}
+      </div>
       <div className="formGrid">
         <label>Icon<input value={form.icon} onChange={(event) => onChange({ ...form, icon: event.target.value })} /></label>
         <label>{t("taskName")}<input value={form.title} onChange={(event) => onChange({ ...form, title: event.target.value })} /></label>
-        <label>{t("category")}<CategorySelect value={form.category} onChange={(category) => onChange({ ...form, category })} /></label>
+        {!isSchedule ? <label>{t("category")}<CategorySelect t={t} value={form.category} onChange={(category) => onChange({ ...form, category })} /></label> : null}
         <label>{t("themeColor")}<input type="color" value={form.tone} onChange={(event) => onChange({ ...form, tone: event.target.value })} /></label>
-        <label className="wide">{t("dailyTarget")}<input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} /></label>
-        <label>{t("targetApp")}<input placeholder="Maps;Youtobe" value={form.targetApp} onChange={(event) => onChange({ ...form, targetApp: event.target.value })} /></label>
+        <label className={isSchedule ? "wide" : ""}>{isSchedule ? t("locationNotes") : t("dailyTarget")}<input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} /></label>
+        {isTimed ? <label>{t("targetApp")}<input placeholder="YouTube;Minecraft" value={form.targetApp} onChange={(event) => onChange({ ...form, targetApp: event.target.value })} /></label> : null}
         <label>{t("rewardEnergy")}<input type="number" value={form.energy} onChange={(event) => onChange({ ...form, energy: event.target.value })} /></label>
-        <label>{t("totalSteps")}<input type="number" min="1" value={form.total} onChange={(event) => onChange({ ...form, total: event.target.value })} /></label>
-        <label>{t("date")}<input type="date" value={form.occurrenceDate} onChange={(event) => onChange({ ...form, occurrenceDate: event.target.value })} /></label>
-        <label>{t("time")}<input type="time" value={form.scheduledTime} onChange={(event) => onChange({ ...form, scheduledTime: event.target.value })} /></label>
-        <label>{t("source")}<SourceSelect t={t} value={form.source} onChange={(source) => onChange({ ...form, source })} /></label>
-        <label>{t("timeLimit")}<input type="number" min="1" value={form.timeLimitMinutes} onChange={(event) => onChange({ ...form, timeLimitMinutes: event.target.value })} /></label>
-        <RepeatRuleEditor value={form.repeatRule} onChange={(repeatRule) => onChange({ ...form, repeatRule })} t={t} />
-        <ExpandableTextarea label={t("detailedContent")} t={t} value={form.detail} onChange={(detail) => onChange({ ...form, detail })} />
-        <ExpandableTextarea label={t("goals")} t={t} value={form.goals} onChange={(goals) => onChange({ ...form, goals })} />
-        <label>{t("materials")}<input value={form.materials} onChange={(event) => onChange({ ...form, materials: event.target.value })} /></label>
-        <label>{t("vocabulary")}<input value={form.vocabulary} onChange={(event) => onChange({ ...form, vocabulary: event.target.value })} /></label>
-        <label className="wide">{t("assessmentMethod")}<input value={form.assessment} onChange={(event) => onChange({ ...form, assessment: event.target.value })} /></label>
-        <ExpandableTextarea label={t("parentNotes")} t={t} value={form.notes} onChange={(notes) => onChange({ ...form, notes })} />
-        <label className="wide fileInput">
-          {t("uploadFile")}
-          <input multiple type="file" onChange={(event) => void attachFiles(event.currentTarget.files, form, onChange)} />
-        </label>
+        {!isSchedule ? <label>{t("totalSteps")}<input type="number" min="1" value={form.total} onChange={(event) => onChange({ ...form, total: event.target.value })} /></label> : null}
+        {!isSchedule ? <label>{t("source")}<SourceSelect t={t} value={form.source} onChange={(source) => onChange({ ...form, source })} /></label> : null}
+        <label>{t("startDate")}<input type="date" value={form.occurrenceDate ?? ""} onChange={(event) => onChange({ ...form, occurrenceDate: event.target.value })} /></label>
+        <label>{t("startTime")}<input type="time" value={form.scheduledTime ?? ""} onChange={(event) => onChange({ ...form, scheduledTime: event.target.value })} /></label>
+        <label>{t("endDate")}<input type="date" value={form.endDate ?? ""} onChange={(event) => onChange({ ...form, endDate: event.target.value })} /></label>
+        <label>{t("endTime")}<input type="time" value={form.endTime ?? ""} onChange={(event) => onChange({ ...form, endTime: event.target.value })} /></label>
+        <label>{t("suggestedDuration")}<input type="number" min="0" value={form.suggestedMinutes ?? ""} onChange={(event) => onChange({ ...form, suggestedMinutes: event.target.value, timeLimitMinutes: isTimed ? event.target.value : form.timeLimitMinutes })} /></label>
+        <RepeatRuleEditor value={form.repeatRule ?? ""} onChange={(repeatRule) => onChange({ ...form, repeatRule })} t={t} />
+        {!isTimed ? <ExpandableTextarea label={isSchedule ? t("reminderNotes") : t("detailedContent")} t={t} value={form.detail} onChange={(detail) => onChange({ ...form, detail })} /> : null}
+        {isFlexible ? <ExpandableTextarea label={t("goals")} t={t} value={form.goals} onChange={(goals) => onChange({ ...form, goals })} /> : null}
+        {isFlexible ? <label>{t("materials")}<input value={form.materials} onChange={(event) => onChange({ ...form, materials: event.target.value })} /></label> : null}
+        {isFlexible ? <label>{t("vocabulary")}<input value={form.vocabulary} onChange={(event) => onChange({ ...form, vocabulary: event.target.value })} /></label> : null}
+        {!isSchedule ? <label className="wide">{t("assessmentMethod")}<input value={form.assessment} onChange={(event) => onChange({ ...form, assessment: event.target.value })} /></label> : null}
+        {isFlexible ? <ExpandableTextarea label={t("parentNotes")} t={t} value={form.notes} onChange={(notes) => onChange({ ...form, notes })} /> : null}
+        {isFlexible ? (
+          <label className="wide fileInput">
+            {t("uploadFile")}
+            <input multiple type="file" onChange={(event) => void attachFiles(event.currentTarget.files, form, onChange)} />
+          </label>
+        ) : null}
       </div>
       {form.attachments.length > 0 ? (
         <div className="attachmentEditor">
@@ -1507,7 +1721,7 @@ function TaskFilterDialog({
         </div>
         <MultiSelectGroup
           label={t("category")}
-          options={categoryOptions}
+          options={categoryOptions.map((option) => ({ label: formatCategory(option.value, t), value: option.value }))}
           values={filters.categories}
           onChange={(categories) => onChange({ ...filters, categories })}
         />
@@ -1559,13 +1773,13 @@ function MultiSelectGroup({
   );
 }
 
-function CategorySelect({ onChange, value }: { onChange: (value: string) => void; value: string }) {
-  const normalizedValue = categoryOptions.some((option) => option.value === value) ? value : "other";
+function CategorySelect({ onChange, t, value }: { onChange: (value: string) => void; t: (key: string) => string; value: string }) {
+  const normalizedValue = categoryOptions.some((option) => option.value === value) ? value : "Other";
 
   return (
     <select value={normalizedValue} onChange={(event) => onChange(event.target.value)}>
       {categoryOptions.map((option) => (
-        <option key={option.value} value={option.value}>{option.label}</option>
+        <option key={option.value} value={option.value}>{formatCategory(option.value, t)}</option>
       ))}
     </select>
   );
@@ -1632,7 +1846,7 @@ function TemplateFormView({
           </section>
           <dl className="detailGrid">
             <div><dt>{t("status")}</dt><dd>{selectedTemplate.active ? "active" : "paused"}</dd></div>
-            <div><dt>{t("category")}</dt><dd>{formatCategory(selectedTemplate.category)}</dd></div>
+            <div><dt>{t("category")}</dt><dd>{formatCategory(selectedTemplate.category, t)}</dd></div>
             <div><dt>{t("reward")}</dt><dd>{selectedTemplate.energy}</dd></div>
             <div><dt>{t("totalSteps")}</dt><dd>{selectedTemplate.total}</dd></div>
           </dl>
@@ -1657,7 +1871,7 @@ function TemplateFormView({
           <div className="formGrid compact">
             <label>Icon<input value={form.icon} onChange={(event) => onChange({ ...form, icon: event.target.value })} /></label>
             <label>{t("taskName")}<input value={form.title} onChange={(event) => onChange({ ...form, title: event.target.value })} /></label>
-            <label>{t("category")}<CategorySelect value={form.category} onChange={(category) => onChange({ ...form, category })} /></label>
+            <label>{t("category")}<CategorySelect t={t} value={form.category} onChange={(category) => onChange({ ...form, category })} /></label>
             <label>{t("themeColor")}<input type="color" value={form.tone} onChange={(event) => onChange({ ...form, tone: event.target.value })} /></label>
             <label className="wide">{t("dailyTarget")}<input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} /></label>
             <label>{t("targetApp")}<input placeholder="Maps;Youtobe" value={form.targetApp} onChange={(event) => onChange({ ...form, targetApp: event.target.value })} /></label>
@@ -1688,29 +1902,32 @@ function AccountMenu({
   account,
   family,
   isSignedIn,
-  language,
   t,
   onAuthMode,
-  onLanguage,
   onLogout,
   onNavigate
 }: {
   account: { confirmPassword: string; email: string; name: string; password: string };
   family: Family | null;
   isSignedIn: boolean;
-  language: Language;
   t: (key: string) => string;
   onAuthMode: (mode: AuthMode) => void;
-  onLanguage: (language: Language) => void;
   onLogout: () => void;
   onNavigate: (view: AdminView) => void;
 }) {
   const parent = family?.parent;
   const name = parent?.name ?? account.name;
   const email = parent?.email ?? account.email;
+  const menuRef = useCloseDetailsOnOutside<HTMLDetailsElement>();
+
+  function closeMenu() {
+    if (menuRef.current) {
+      menuRef.current.open = false;
+    }
+  }
 
   return (
-    <details className="accountMenu">
+    <details className="accountMenu" ref={menuRef}>
       <summary className="avatarButton" aria-label={t("account")}>
         <span>{initials(name)}</span>
       </summary>
@@ -1723,31 +1940,84 @@ function AccountMenu({
         <div className="menuGroup">
           {isSignedIn ? (
             <>
-              <button type="button" role="menuitem" onClick={() => onNavigate("family")}>{t("familyRoles")}</button>
-              <button type="button" role="menuitem" onClick={() => onNavigate("rules")}>{t("rules")}</button>
+              <button type="button" role="menuitem" onClick={() => { onNavigate("family"); closeMenu(); }}>{t("familyRoles")}</button>
+              <button type="button" role="menuitem" onClick={() => { onNavigate("templates"); closeMenu(); }}>{t("templates")}</button>
+              <button type="button" role="menuitem" onClick={() => { onNavigate("rules"); closeMenu(); }}>{t("rules")}</button>
             </>
           ) : (
             <>
-              <button type="button" role="menuitem" onClick={() => onAuthMode("login")}>{t("login")}</button>
-              <button type="button" role="menuitem" onClick={() => onAuthMode("register")}>{t("register")}</button>
+              <button type="button" role="menuitem" onClick={() => { onAuthMode("login"); closeMenu(); }}>{t("login")}</button>
+              <button type="button" role="menuitem" onClick={() => { onAuthMode("register"); closeMenu(); }}>{t("register")}</button>
             </>
           )}
         </div>
-        <div className="menuGroup">
-          <span className="menuLabel">{language === "zh" ? "语种" : "Language"}</span>
-          <div className="menuSwitch" aria-label="Language switch">
-            <button className={language === "en" ? "active" : ""} type="button" onClick={() => onLanguage("en")}>EN</button>
-            <button className={language === "zh" ? "active" : ""} type="button" onClick={() => onLanguage("zh")}>中文</button>
-          </div>
-        </div>
         {isSignedIn ? (
           <div className="menuGroup">
-            <button className="dangerText" type="button" role="menuitem" onClick={onLogout}>{t("logout")}</button>
+            <button className="dangerText" type="button" role="menuitem" onClick={() => { onLogout(); closeMenu(); }}>{t("logout")}</button>
           </div>
         ) : null}
       </div>
     </details>
   );
+}
+
+function LanguageMenu({ language, onLanguage }: { language: Language; onLanguage: (language: Language) => void }) {
+  const menuRef = useCloseDetailsOnOutside<HTMLDetailsElement>();
+
+  function selectLanguage(nextLanguage: Language) {
+    onLanguage(nextLanguage);
+
+    if (menuRef.current) {
+      menuRef.current.open = false;
+    }
+  }
+
+  return (
+    <details className="utilityMenu" ref={menuRef}>
+      <summary className="iconButton" aria-label={language === "zh" ? "语种" : "Language"}>
+        文
+      </summary>
+      <div className="utilityPopover">
+        <span className="menuLabel">{language === "zh" ? "语种" : "Language"}</span>
+        <div className="menuSwitch" aria-label="Language switch">
+          <button className={language === "en" ? "active" : ""} type="button" onClick={() => selectLanguage("en")}>EN</button>
+          <button className={language === "zh" ? "active" : ""} type="button" onClick={() => selectLanguage("zh")}>中文</button>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function useCloseDetailsOnOutside<T extends HTMLDetailsElement>() {
+  const ref = useRef<T | null>(null);
+
+  useEffect(() => {
+    function closeIfOutside(event: PointerEvent) {
+      const details = ref.current;
+
+      if (!details?.open || !event.target || details.contains(event.target as Node)) {
+        return;
+      }
+
+      details.open = false;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && ref.current?.open) {
+        ref.current.open = false;
+      }
+    }
+
+    document.addEventListener("pointerdown", closeIfOutside);
+    document.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeIfOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
+
+  return ref;
 }
 
 function RepeatRuleEditor({
@@ -1890,7 +2160,7 @@ function TaskDetail({
         <div>
           <p className="kicker">{t("taskContent")}</p>
           <h2>{mission.title}</h2>
-          <span>{formatCategory(mission.category)} · {mission.target}</span>
+          <span>{formatCategory(mission.category, t)} · {mission.target}</span>
         </div>
       </div>
       {shouldShowTimedReset ? (
@@ -2016,6 +2286,9 @@ function CalendarBoard({
 function buildTaskDetail(form: TaskForm) {
   return [
     form.detail.trim(),
+    labeledTaskDetail("End date", form.endDate),
+    labeledTaskDetail("End time", form.endTime),
+    labeledTaskDetail("Suggested duration", form.suggestedMinutes ? `${form.suggestedMinutes} min` : ""),
     labeledTaskDetail("Materials", form.materials),
     labeledTaskDetail("Vocabulary", form.vocabulary),
     labeledTaskDetail("Assessment", form.assessment),
@@ -2023,21 +2296,120 @@ function buildTaskDetail(form: TaskForm) {
   ].filter(Boolean).join("\n\n");
 }
 
+function kindForMission(mission: Mission): TaskKind {
+  if (mission.executionType === "schedule" || ["calendar", "schedule", "reminder"].includes(mission.category) || mission.source === "calendar") {
+    return "schedule";
+  }
+
+  if (mission.executionType === "timed" || mission.timeLimitMinutes || mission.targetApp) {
+    return "timed";
+  }
+
+  return "completion";
+}
+
+function taskFormForKind(kind: TaskKind, form: TaskForm): TaskForm {
+  const defaults = taskKindDefaults[kind];
+  const next = {
+    ...form,
+    ...defaults,
+    attachments: kind === "completion" ? form.attachments : [],
+    endDate: form.endDate,
+    endTime: form.endTime,
+    occurrenceDate: form.occurrenceDate,
+    repeatRule: form.repeatRule,
+    scheduledTime: form.scheduledTime,
+    suggestedMinutes: form.suggestedMinutes
+  };
+
+  if (kind === "timed") {
+    return {
+      ...next,
+      timeLimitMinutes: form.suggestedMinutes || form.timeLimitMinutes || "",
+      targetApp: form.targetApp
+    };
+  }
+
+  if (kind === "schedule") {
+    return {
+      ...next,
+      energy: form.energy === emptyTaskForm.energy ? defaults.energy ?? "0" : form.energy,
+      target: form.target && !isTaskKindDefaultTarget(form.target) ? form.target : defaults.target ?? "Scheduled event"
+    };
+  }
+
+  return next;
+}
+
+function isTaskKindDefaultTarget(value: string) {
+  return [emptyTaskForm.target, ...Object.values(taskKindDefaults).map((defaults) => defaults.target)]
+    .filter(Boolean)
+    .includes(value);
+}
+
+function normalizeTaskFormForKind(form: TaskForm, kind: TaskKind): TaskForm {
+  if (kind === "schedule") {
+    return {
+      ...form,
+      assessment: "Calendar reminder",
+      attachments: [],
+      category: "calendar",
+      goals: form.goals.trim() || "Attend",
+      materials: "",
+      notes: "",
+      repeatRule: form.repeatRule,
+      source: "calendar",
+      targetApp: "",
+      timeLimitMinutes: "",
+      total: "1",
+      vocabulary: ""
+    };
+  }
+
+  if (kind === "timed") {
+    return {
+      ...form,
+      attachments: [],
+      category: form.category === "calendar" ? "Game" : form.category,
+      detail: form.detail || form.target,
+      goals: form.goals.trim() || "Start\nPause or resume if needed\nEnd on time",
+      materials: "",
+      source: form.source || "parent",
+      suggestedMinutes: form.suggestedMinutes || form.timeLimitMinutes,
+      timeLimitMinutes: form.suggestedMinutes || form.timeLimitMinutes,
+      total: "1",
+      vocabulary: ""
+    };
+  }
+
+  return {
+    ...form,
+    category: form.category === "calendar" ? "Other" : form.category,
+    source: form.source || "parent",
+    suggestedMinutes: form.suggestedMinutes,
+    targetApp: "",
+    timeLimitMinutes: ""
+  };
+}
+
 function labeledTaskDetail(label: string, value: string) {
   const trimmed = value.trim();
   return trimmed ? `${label}: ${trimmed}` : "";
 }
 
-type SplitTaskDetailParts = Pick<TaskForm, "assessment" | "detail" | "materials" | "notes" | "vocabulary">;
+type SplitTaskDetailParts = Pick<TaskForm, "assessment" | "detail" | "endDate" | "endTime" | "materials" | "notes" | "suggestedMinutes" | "vocabulary">;
 
-const taskDetailSectionPattern = /(?:^|\n)[ \t]*(Materials|Vocabulary|Assessment|Parent notes):[ \t]*/gi;
+const taskDetailSectionPattern = /(?:^|\n)[ \t]*(End date|End time|Suggested duration|Materials|Vocabulary|Assessment|Parent notes):[ \t]*/gi;
 
 function splitTaskDetail(detail: string, fallback: Partial<Omit<SplitTaskDetailParts, "detail">> = {}): SplitTaskDetailParts {
   const parts: SplitTaskDetailParts = {
     assessment: "",
     detail: detail.trim(),
+    endDate: "",
+    endTime: "",
     materials: "",
     notes: "",
+    suggestedMinutes: "",
     vocabulary: ""
   };
   const matches: RegExpExecArray[] = [];
@@ -2051,8 +2423,11 @@ function splitTaskDetail(detail: string, fallback: Partial<Omit<SplitTaskDetailP
 
   if (!matches.length) {
     parts.assessment = fallback.assessment ?? "";
+    parts.endDate = fallback.endDate ?? "";
+    parts.endTime = fallback.endTime ?? "";
     parts.materials = fallback.materials ?? "";
     parts.notes = fallback.notes ?? "";
+    parts.suggestedMinutes = fallback.suggestedMinutes ?? "";
     parts.vocabulary = fallback.vocabulary ?? "";
     return parts;
   }
@@ -2073,6 +2448,15 @@ function splitTaskDetail(detail: string, fallback: Partial<Omit<SplitTaskDetailP
     if (key === "materials" && !parts.materials) {
       parts.materials = content;
     }
+    if (key === "end date" && !parts.endDate) {
+      parts.endDate = content;
+    }
+    if (key === "end time" && !parts.endTime) {
+      parts.endTime = content;
+    }
+    if (key === "suggested duration" && !parts.suggestedMinutes) {
+      parts.suggestedMinutes = content.replace(/[^\d.]/g, "");
+    }
     if (key === "vocabulary" && !parts.vocabulary) {
       parts.vocabulary = content;
     }
@@ -2085,8 +2469,11 @@ function splitTaskDetail(detail: string, fallback: Partial<Omit<SplitTaskDetailP
   });
 
   parts.assessment = parts.assessment || fallback.assessment || "";
+  parts.endDate = parts.endDate || fallback.endDate || "";
+  parts.endTime = parts.endTime || fallback.endTime || "";
   parts.materials = parts.materials || fallback.materials || "";
   parts.notes = parts.notes || fallback.notes || "";
+  parts.suggestedMinutes = parts.suggestedMinutes || fallback.suggestedMinutes || "";
   parts.vocabulary = parts.vocabulary || fallback.vocabulary || "";
 
   return parts;
@@ -2126,6 +2513,10 @@ function normalizeCategory(value: string) {
     return value;
   }
 
+  if (value === "schedule" || value === "reminder" || value === "google_calendar") {
+    return "calendar";
+  }
+
   if (value === "reading" || value === "english") {
     return "Eng";
   }
@@ -2153,9 +2544,62 @@ function normalizeCategory(value: string) {
   return "Other";
 }
 
-function formatCategory(value: string) {
+function formatCategory(value: string, t: (key: string) => string) {
   const category = normalizeCategory(value);
-  return categoryOptions.find((option) => option.value === category)?.label ?? "其他";
+  const option = categoryOptions.find((item) => item.value === category);
+  const fallback = categoryFallbackLabel(category);
+
+  if (!option) {
+    return fallback;
+  }
+
+  const translated = t(option.labelKey);
+  return translated === option.labelKey || translated.startsWith("Category ") ? fallback : translated;
+}
+
+function taskKindLabel(kind: TaskKind, t: (key: string) => string) {
+  const option = taskKindOptions.find((item) => item.kind === kind);
+  const fallback = kind === "schedule" ? "Schedule" : kind === "timed" ? "Timed" : "Flexible";
+
+  if (!option) {
+    return fallback;
+  }
+
+  const translated = t(option.labelKey);
+  return translated === option.labelKey || translated.startsWith("Task Kind ") ? fallback : translated;
+}
+
+function taskKindHint(kind: TaskKind, t: (key: string) => string) {
+  const isChinese = t("taskKindCompletion") === "柔性完成";
+
+  if (kind === "schedule") {
+    return isChinese ? "日程提醒：标题、孩子、日期、时间、地点/备注。" : "Schedule reminder: title, child, date, time, location or notes.";
+  }
+
+  if (kind === "timed") {
+    return isChinese ? "限时执行：限时时长、目标 App、提醒和奖励。" : "Timed task: limit, target app, reminder, and reward.";
+  }
+
+  return isChinese ? "柔性完成：目标、说明、清单、提醒和奖励。" : "Flexible task: goal, instructions, checklist, reminder, and reward.";
+}
+
+function categoryFallbackLabel(value: string) {
+  switch (value) {
+    case "Math":
+      return "Math";
+    case "Chinese":
+      return "Chinese";
+    case "Eng":
+      return "English";
+    case "Sports":
+      return "Sports";
+    case "Game":
+      return "Game";
+    case "calendar":
+      return "Calendar";
+    default:
+      return "Other";
+  }
 }
 
 function formatSource(value: string | undefined, t: (key: string) => string) {
@@ -2252,6 +2696,14 @@ async function attachFiles(files: FileList | null, form: TaskForm, onChange: (fo
   );
 
   onChange({ ...form, attachments: [...form.attachments, ...attachments] });
+}
+
+async function readChildAvatarFile(file: File | undefined, onChange: (avatarUri: string) => void) {
+  if (!file) {
+    return;
+  }
+
+  onChange(await readFileAsDataUrl(file));
 }
 
 function readFileAsDataUrl(file: File) {
@@ -2398,6 +2850,14 @@ function formatRepeatRule(rule?: string, t?: (key: string) => string) {
 }
 
 function parseRepeatRule(rule: string): RepeatDraft {
+  if (!rule.trim()) {
+    return {
+      byDay: [],
+      frequency: "none",
+      interval: 1
+    };
+  }
+
   const parts = Object.fromEntries(
     rule.split(";").map((part) => {
       const [key, value] = part.split("=");

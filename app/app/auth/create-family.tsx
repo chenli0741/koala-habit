@@ -38,7 +38,7 @@ export default function CreateFamilyScreen() {
   }
 
   return (
-    <ScrollView style={styles.scroller} contentContainerStyle={[styles.screen, isCompact && styles.screenCompact]}>
+    <ScrollView style={styles.scroller} contentContainerStyle={StyleSheet.flatten([styles.screen, isCompact && styles.screenCompact])}>
       <View style={[styles.copy, isCompact && styles.copyCompact]}>
         <Text style={shared.kicker}>{t("familySpace")}</Text>
         <Text style={[shared.title, isCompact && styles.titleCompact]}>{t("createFamilySpace")}</Text>

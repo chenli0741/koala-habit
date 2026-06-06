@@ -12,11 +12,14 @@ export type MissionCategory =
   | "music"
   | "sport"
   | "entertainment"
+  | "schedule"
+  | "reminder"
+  | "calendar"
   | "chinese"
   | "english"
   | "other";
-export type MissionExecutionType = "completion" | "submission" | "timed";
-export type MissionStatus = "done" | "todo" | "in_progress" | "expired";
+export type MissionExecutionType = "completion" | "submission" | "timed" | "schedule";
+export type MissionStatus = "done" | "todo" | "in_progress" | "expired" | "cancelled";
 export type OccurrenceStatus = "pending" | "done" | "skipped" | "expired";
 
 export type RewardRecord = {
@@ -44,6 +47,7 @@ export type TaskEventType =
   | "timer_resume"
   | "timer_end"
   | "completion"
+  | "cancelled"
   | "attachment_added";
 
 export type TaskEventRecord = {
@@ -90,9 +94,11 @@ export type Mission = {
   id: string;
   templateId: string;
   occurrenceDate: string;
+  scheduledTime?: string;
   icon: string;
   title: string;
   category: MissionCategory;
+  repeatRule?: string;
   target: string;
   detail: string;
   goals: string[];
@@ -102,6 +108,7 @@ export type Mission = {
   eventRecords: TaskEventRecord[];
   activeRun?: TaskRun;
   executionType: MissionExecutionType;
+  rewardMinutes?: number;
   timeLimitMinutes?: number;
   targetApp?: string;
   source?: string;
@@ -346,5 +353,7 @@ export function missionStatusLabel(status: MissionStatus) {
       return "In progress";
     case "expired":
       return "Expired";
+    case "cancelled":
+      return "Cancelled";
   }
 }
