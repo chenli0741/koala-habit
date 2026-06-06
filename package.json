@@ -1,6 +1,6 @@
 {
   "name": "koala-habit",
-  "version": "0.1.0",
+  "version": "1.21",
   "private": true,
   "workspaces": [
     "app",
