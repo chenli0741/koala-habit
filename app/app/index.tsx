@@ -434,7 +434,6 @@ function TaskSchedule({
     setDraggingId(null);
     dragStepRef.current = { y: 0 };
     if (missionId && Math.abs(dx) > 88) {
-      LayoutAnimation.configureNext(layoutAnimationConfig);
       setDayColumns((current) => moveMissionToColumn(current, missionId, dx > 0 ? "secondary" : "primary"));
     }
     setTimeout(() => {
@@ -563,12 +562,14 @@ function MissionCard({
   const missionKind = kindForMission(mission);
   const percent = missionKind === "schedule" ? (mission.status === "done" ? 100 : 0) : Math.round((mission.progress / mission.total) * 100);
   const dragOffset = useRef(new Animated.ValueXY()).current;
+  const dragPreviewOffset = useRef(new Animated.ValueXY()).current;
 
   useEffect(() => {
     if (!isDragging) {
       dragOffset.setValue({ x: 0, y: 0 });
+      dragPreviewOffset.setValue({ x: 0, y: 0 });
     }
-  }, [dragOffset, isDragging]);
+  }, [dragOffset, dragPreviewOffset, isDragging]);
 
   const panResponder = useMemo(
     () =>
@@ -581,28 +582,22 @@ function MissionCard({
         },
         onPanResponderMove: (_, gestureState) => {
           dragOffset.setValue({ x: gestureState.dx, y: gestureState.dy });
+          dragPreviewOffset.setValue({
+            x: dampHorizontalDrag(gestureState.dx),
+            y: gestureState.dy
+          });
           onDragMove?.(mission.id, gestureState.dy);
         },
         onPanResponderRelease: (_, gestureState) => {
-          Animated.spring(dragOffset, {
-            friction: 7,
-            tension: 90,
-            toValue: { x: 0, y: 0 },
-            useNativeDriver: true
-          }).start();
+          resetDragPreview(dragOffset, dragPreviewOffset);
           onDragEnd?.(mission.id, gestureState.dx);
         },
         onPanResponderTerminate: (_, gestureState) => {
-          Animated.spring(dragOffset, {
-            friction: 7,
-            tension: 90,
-            toValue: { x: 0, y: 0 },
-            useNativeDriver: true
-          }).start();
+          resetDragPreview(dragOffset, dragPreviewOffset);
           onDragEnd?.(mission.id, gestureState.dx);
         }
       }),
-    [dragOffset, mission.id, onDragEnd, onDragMove, onDragStart, onEnterReorder]
+    [dragOffset, dragPreviewOffset, mission.id, onDragEnd, onDragMove, onDragStart, onEnterReorder]
   );
 
   const card = (
@@ -661,7 +656,7 @@ function MissionCard({
         style={StyleSheet.flatten([
           isDragging && styles.animatedDraggingMissionCard,
           {
-            transform: [...dragOffset.getTranslateTransform(), { scale: isDragging ? 1.02 : 1 }]
+            transform: [...dragPreviewOffset.getTranslateTransform(), { scale: isDragging ? 1.02 : 1 }]
           }
         ])}
       >
@@ -689,6 +684,28 @@ function splitDayMissions(missions: Mission[]) {
   }
 
   return splitDefaultDayMissions(missions);
+}
+
+function dampHorizontalDrag(dx: number) {
+  const direction = dx < 0 ? -1 : 1;
+  return direction * Math.min(Math.abs(dx) * 0.18, 42);
+}
+
+function resetDragPreview(offset: Animated.ValueXY, previewOffset: Animated.ValueXY) {
+  Animated.parallel([
+    Animated.spring(offset, {
+      friction: 7,
+      tension: 90,
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: true
+    }),
+    Animated.spring(previewOffset, {
+      friction: 7,
+      tension: 90,
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: true
+    })
+  ]).start();
 }
 
 function splitDefaultDayMissions(missions: Mission[]) {
