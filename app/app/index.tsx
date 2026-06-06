@@ -21,6 +21,9 @@ const layoutAnimationConfig = {
   create: { property: LayoutAnimation.Properties.opacity, type: LayoutAnimation.Types.easeInEaseOut },
   update: { type: LayoutAnimation.Types.easeInEaseOut }
 };
+const columnSwitchThreshold = 56;
+const horizontalDragPreviewMax = 96;
+const horizontalDragPreviewRatio = 0.42;
 
 export default function HomeScreen() {
   const { activeChild, children, completedCount, isSessionReady, language, missions, parent, setLanguage, t, todayEnergy, updateChild, updateMissionLayout } = useKoalaStore();
@@ -433,7 +436,7 @@ function TaskSchedule({
   function endDrag(missionId?: string, dx = 0) {
     setDraggingId(null);
     dragStepRef.current = { y: 0 };
-    if (missionId && Math.abs(dx) > 88) {
+    if (missionId && Math.abs(dx) > columnSwitchThreshold) {
       setDayColumns((current) => moveMissionToColumn(current, missionId, dx > 0 ? "secondary" : "primary"));
     }
     setTimeout(() => {
@@ -563,11 +566,13 @@ function MissionCard({
   const percent = missionKind === "schedule" ? (mission.status === "done" ? 100 : 0) : Math.round((mission.progress / mission.total) * 100);
   const dragOffset = useRef(new Animated.ValueXY()).current;
   const dragPreviewOffset = useRef(new Animated.ValueXY()).current;
+  const [isColumnSwitchReady, setIsColumnSwitchReady] = useState(false);
 
   useEffect(() => {
     if (!isDragging) {
       dragOffset.setValue({ x: 0, y: 0 });
       dragPreviewOffset.setValue({ x: 0, y: 0 });
+      setIsColumnSwitchReady(false);
     }
   }, [dragOffset, dragPreviewOffset, isDragging]);
 
@@ -581,6 +586,7 @@ function MissionCard({
           onDragStart?.(mission.id);
         },
         onPanResponderMove: (_, gestureState) => {
+          setIsColumnSwitchReady(Math.abs(gestureState.dx) > columnSwitchThreshold);
           dragOffset.setValue({ x: gestureState.dx, y: gestureState.dy });
           dragPreviewOffset.setValue({
             x: dampHorizontalDrag(gestureState.dx),
@@ -589,10 +595,12 @@ function MissionCard({
           onDragMove?.(mission.id, gestureState.dy);
         },
         onPanResponderRelease: (_, gestureState) => {
+          setIsColumnSwitchReady(false);
           resetDragPreview(dragOffset, dragPreviewOffset);
           onDragEnd?.(mission.id, gestureState.dx);
         },
         onPanResponderTerminate: (_, gestureState) => {
+          setIsColumnSwitchReady(false);
           resetDragPreview(dragOffset, dragPreviewOffset);
           onDragEnd?.(mission.id, gestureState.dx);
         }
@@ -612,7 +620,7 @@ function MissionCard({
       ])}
     >
       {isReordering ? (
-        <View style={styles.dragHandle} {...panResponder.panHandlers}>
+        <View style={StyleSheet.flatten([styles.dragHandle, isColumnSwitchReady && styles.dragHandleReady])} {...panResponder.panHandlers}>
           <Text style={styles.dragHandleIcon}>☰</Text>
         </View>
       ) : null}
@@ -688,7 +696,7 @@ function splitDayMissions(missions: Mission[]) {
 
 function dampHorizontalDrag(dx: number) {
   const direction = dx < 0 ? -1 : 1;
-  return direction * Math.min(Math.abs(dx) * 0.18, 42);
+  return direction * Math.min(Math.abs(dx) * horizontalDragPreviewRatio, horizontalDragPreviewMax);
 }
 
 function resetDragPreview(offset: Animated.ValueXY, previewOffset: Animated.ValueXY) {
@@ -1389,6 +1397,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: "#EEF3EA",
     flexShrink: 0
+  },
+  dragHandleReady: {
+    backgroundColor: "#D8E8D4"
   },
   dragHandleIcon: {
     color: palette.green,
