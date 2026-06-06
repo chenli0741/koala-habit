@@ -1,6 +1,6 @@
 import { Link, Redirect, router } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useKoalaStore } from "../../data/store";
 import { palette, shared } from "../../ui/styles";
 
@@ -89,21 +89,31 @@ export default function ChildPinScreen() {
       </View>
 
       <View style={[styles.companionPanel, isCompact && styles.companionPanelCompact]}>
-        <View style={[styles.koala, isCompact && styles.koalaCompact]}>
-          <View style={styles.earLeft} />
-          <View style={styles.earRight} />
-          <View style={styles.face}>
-            <View style={styles.eyeRow}>
-              <View style={styles.eye} />
-              <View style={styles.eye} />
-            </View>
-            <View style={styles.nose} />
-          </View>
-        </View>
+        <ChildAvatar avatarUri={child?.avatar} isCompact={isCompact} />
         <Text style={[styles.companionTitle, isCompact && styles.companionTitleCompact]}>{t("kokoWaiting")}</Text>
         <Text style={[styles.companionText, isCompact && styles.companionTextCompact]}>{t("childPrivatePin")}</Text>
       </View>
     </ScrollView>
+  );
+}
+
+function ChildAvatar({ avatarUri, isCompact }: { avatarUri?: string; isCompact: boolean }) {
+  if (avatarUri && avatarUri !== "Koala") {
+    return <Image source={{ uri: avatarUri }} style={StyleSheet.flatten([styles.childAvatarImage, isCompact && styles.childAvatarImageCompact])} />;
+  }
+
+  return (
+    <View style={[styles.koala, isCompact && styles.koalaCompact]}>
+      <View style={styles.earLeft} />
+      <View style={styles.earRight} />
+      <View style={styles.face}>
+        <View style={styles.eyeRow}>
+          <View style={styles.eye} />
+          <View style={styles.eye} />
+        </View>
+        <View style={styles.nose} />
+      </View>
+    </View>
   );
 }
 
@@ -219,6 +229,19 @@ const styles = StyleSheet.create({
   koalaCompact: {
     transform: [{ scale: 0.82 }],
     marginVertical: -18
+  },
+  childAvatarImage: {
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    backgroundColor: "#DDE8D6",
+    borderWidth: 8,
+    borderColor: "#526350"
+  },
+  childAvatarImageCompact: {
+    width: 172,
+    height: 172,
+    borderRadius: 86
   },
   earLeft: {
     position: "absolute",
