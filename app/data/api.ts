@@ -305,7 +305,7 @@ export type MissionEvidence = {
 
 export type UploadMissionFilePayload = {
   fileName: string;
-  kind: "photo" | "audio";
+  kind: "avatar" | "photo" | "audio";
   mimeType: string;
   missionId: string;
   uri: string;

@@ -1,7 +1,7 @@
 import { Link, Redirect, router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { fetchMissions } from "../data/api";
+import { fetchMissions, uploadMissionFileApi } from "../data/api";
 import { childProfile, Mission } from "../data/demo";
 import { profileForChild, useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
@@ -205,12 +205,14 @@ function ChildProfileEditor({
   updateChild: (childId: string, child: { avatar?: string; pin?: string }) => Promise<unknown>;
 }) {
   const [draftAvatar, setDraftAvatar] = useState(avatarUri);
+  const [draftAvatarMimeType, setDraftAvatarMimeType] = useState("image/jpeg");
   const [draftPin, setDraftPin] = useState("");
   const isChinese = t("language") === "语言";
 
   useEffect(() => {
     if (isOpen) {
       setDraftAvatar(avatarUri);
+      setDraftAvatarMimeType("image/jpeg");
       setDraftPin("");
     }
   }, [avatarUri, isOpen]);
@@ -233,12 +235,23 @@ function ChildProfileEditor({
 
     if (!result.canceled && result.assets[0]?.uri) {
       setDraftAvatar(result.assets[0].uri);
+      setDraftAvatarMimeType(result.assets[0].mimeType ?? "image/jpeg");
     }
   }
 
   async function saveProfile() {
+    const avatar = draftAvatar && isLocalFileUri(draftAvatar)
+      ? await uploadMissionFileApi({
+          fileName: childProfileFileName(childId, draftAvatarMimeType),
+          kind: "avatar",
+          mimeType: draftAvatarMimeType,
+          missionId: childId,
+          uri: draftAvatar
+        })
+      : draftAvatar;
+
     await updateChild(childId, {
-      avatar: draftAvatar,
+      avatar,
       pin: draftPin || undefined
     });
     onClose();
@@ -563,6 +576,16 @@ function KoalaAvatar({ avatarUri, large = false }: { avatarUri?: string; large?:
       <View style={styles.face} />
     </View>
   );
+}
+
+function isLocalFileUri(uri: string) {
+  return uri.startsWith("file://") || uri.startsWith("content://") || uri.startsWith("ph://");
+}
+
+function childProfileFileName(childId: string, mimeType: string) {
+  const cleanChildId = childId.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "child";
+  const extension = mimeType === "image/png" ? ".png" : ".jpg";
+  return `${cleanChildId}-avatar-${Date.now()}${extension}`;
 }
 
 function LargeKoala() {
