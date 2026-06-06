@@ -61,6 +61,18 @@ p {
   margin-top: 0;
 }
 
+.panelTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.panelTitleRow h2 {
+  margin-bottom: 0;
+}
+
 .authPage {
   min-height: 100vh;
   display: grid;

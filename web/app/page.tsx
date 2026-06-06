@@ -203,6 +203,7 @@ const zh: Record<string, string> = {
   logout: "退出登录",
   materials: "材料",
   newTemplate: "新模板",
+  newChild: "新增孩子",
   newTask: "新任务",
   noTasks: "这个视图没有任务",
   overview: "概览",
@@ -723,6 +724,11 @@ export default function Page() {
       name: child.name,
       pin: ""
     });
+  }
+
+  function startCreateChild() {
+    setEditingChildId(null);
+    setChildForm({ avatarUri: "", grade: "3", name: "", pin: "1234" });
   }
 
   async function submitTask(event: FormEvent) {
@@ -1305,7 +1311,10 @@ export default function Page() {
         <section className="gridTwo">
           <div className="panel">
             <p className="kicker">{t("family")}</p>
-            <h2>{t("familyRoles")}</h2>
+            <div className="panelTitleRow">
+              <h2>{t("familyRoles")}</h2>
+              <button className="secondary" type="button" onClick={startCreateChild}>{t("newChild")}</button>
+            </div>
             <div className="memberList">
               {family?.parent ? (
                 <article>
@@ -1345,7 +1354,7 @@ export default function Page() {
             <label>{t("childName")}<input value={childForm.name} onChange={(event) => setChildForm({ ...childForm, name: event.target.value })} /></label>
             <label>{t("grade")}<input value={childForm.grade} onChange={(event) => setChildForm({ ...childForm, grade: event.target.value })} /></label>
             <label>PIN<input placeholder={editingChildId ? (language === "zh" ? "留空则不修改" : "Leave blank to keep current PIN") : "1234"} value={childForm.pin} onChange={(event) => setChildForm({ ...childForm, pin: event.target.value.replace(/\D/g, "") })} /></label>
-            <button type="submit">{t("saveChanges")}</button>
+            <button type="submit">{editingChildId ? t("saveChanges") : t("createChild")}</button>
             {editingChildId ? <button className="secondary" type="button" onClick={() => { setEditingChildId(null); setChildForm({ avatarUri: "", grade: "3", name: "", pin: "1234" }); }}>{t("cancel")}</button> : null}
           </form>
         </section>
