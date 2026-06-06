@@ -1,6 +1,6 @@
 import { Link, Redirect, router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Animated, Image, LayoutAnimation, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { fetchMissions, uploadMissionFileApi } from "../data/api";
 import { childProfile, Mission } from "../data/demo";
 import { profileForChild, useKoalaStore } from "../data/store";
@@ -422,6 +422,7 @@ function TaskSchedule({
     }
 
     dragStepRef.current = nextStep;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setDayColumns((current) => moveMissionInColumns(current, missionId, nextStep.x, nextStep.y - previousStep.y));
   }
 
@@ -553,6 +554,14 @@ function MissionCard({
 }) {
   const missionKind = kindForMission(mission);
   const percent = missionKind === "schedule" ? (mission.status === "done" ? 100 : 0) : Math.round((mission.progress / mission.total) * 100);
+  const dragOffset = useRef(new Animated.ValueXY()).current;
+
+  useEffect(() => {
+    if (!isDragging) {
+      dragOffset.setValue({ x: 0, y: 0 });
+    }
+  }, [dragOffset, isDragging]);
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -562,11 +571,30 @@ function MissionCard({
           onEnterReorder?.(mission.id);
           onDragStart?.(mission.id);
         },
-        onPanResponderMove: (_, gestureState) => onDragMove?.(mission.id, gestureState.dx, gestureState.dy),
-        onPanResponderRelease: () => onDragEnd?.(),
-        onPanResponderTerminate: () => onDragEnd?.()
+        onPanResponderMove: (_, gestureState) => {
+          dragOffset.setValue({ x: gestureState.dx, y: gestureState.dy });
+          onDragMove?.(mission.id, gestureState.dx, gestureState.dy);
+        },
+        onPanResponderRelease: () => {
+          Animated.spring(dragOffset, {
+            friction: 7,
+            tension: 90,
+            toValue: { x: 0, y: 0 },
+            useNativeDriver: true
+          }).start();
+          onDragEnd?.();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(dragOffset, {
+            friction: 7,
+            tension: 90,
+            toValue: { x: 0, y: 0 },
+            useNativeDriver: true
+          }).start();
+          onDragEnd?.();
+        }
       }),
-    [mission.id, onDragEnd, onDragMove, onDragStart, onEnterReorder]
+    [dragOffset, mission.id, onDragEnd, onDragMove, onDragStart, onEnterReorder]
   );
 
   const card = (
@@ -620,7 +648,18 @@ function MissionCard({
   );
 
   if (isReordering) {
-    return card;
+    return (
+      <Animated.View
+        style={StyleSheet.flatten([
+          isDragging && styles.animatedDraggingMissionCard,
+          {
+            transform: [...dragOffset.getTranslateTransform(), { scale: isDragging ? 1.02 : 1 }]
+          }
+        ])}
+      >
+        {card}
+      </Animated.View>
+    );
   }
 
   return (
@@ -1289,8 +1328,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7FBF4"
   },
   draggingMissionCard: {
-    transform: [{ scale: 1.02 }],
     opacity: 0.9
+  },
+  animatedDraggingMissionCard: {
+    zIndex: 3
   },
   dragHandle: {
     width: 32,
