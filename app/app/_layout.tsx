@@ -10,7 +10,7 @@ export default function RootLayout() {
   return (
     <KoalaStoreProvider>
       <StatusBar style="dark" />
-      <Stack screenOptions={{ headerShown: false }} />
+      <Stack screenOptions={{ gestureEnabled: false, headerShown: false }} />
     </KoalaStoreProvider>
   );
 }
