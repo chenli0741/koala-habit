@@ -31,6 +31,7 @@ import {
   startTaskRun,
   updateChild,
   updateMission,
+  updateMissionLayout,
   updateFamily,
   updateTaskTemplate,
   upsertFamilyWithParent
@@ -89,6 +90,8 @@ const demoFamilies = new Map<string, typeof family>([[family.id, family]]);
 type DemoMission = MissionInput & {
   actualEndAt?: string;
   actualStartAt?: string;
+  layoutColumn?: "primary" | "secondary";
+  layoutOrder?: number;
   completionRecord?: {
     actualMinutes?: number;
     completedAt: string;
@@ -313,6 +316,18 @@ const completeMissionSchema = z.object({
   photoUri: z.string().optional(),
   note: z.string().optional(),
   startedAt: z.string().datetime().optional()
+});
+
+const missionLayoutSchema = z.object({
+  childId: z.string().min(1),
+  occurrenceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  layout: z.array(
+    z.object({
+      id: z.string().min(1),
+      layoutColumn: z.enum(["primary", "secondary"]),
+      layoutOrder: z.number().int().min(0)
+    })
+  )
 });
 
 const uploadKindSchema = z.enum(["photo", "audio", "attachment", "avatar"]);
@@ -818,6 +833,44 @@ app.get("/families/demo/missions", async (c) => {
   }
 
   return c.json({ missions: todayMissions });
+});
+
+app.patch("/families/demo/missions/layout", async (c) => {
+  const payload = missionLayoutSchema.parse(await c.req.json());
+
+  if (dbEnabled) {
+    return c.json({
+      missions: await updateMissionLayout(payload.childId, payload.occurrenceDate, payload.layout)
+    });
+  }
+
+  for (const item of payload.layout) {
+    const mission = todayMissions.find((mission) => mission.id === item.id && mission.childId === payload.childId);
+
+    if (mission) {
+      mission.layoutColumn = item.layoutColumn;
+      mission.layoutOrder = item.layoutOrder;
+    }
+  }
+
+  return c.json({
+    missions: todayMissions
+      .filter((mission) => mission.childId === payload.childId)
+      .sort((left, right) => {
+        const leftOrder = left.layoutOrder ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = right.layoutOrder ?? Number.MAX_SAFE_INTEGER;
+
+        if (left.layoutColumn !== right.layoutColumn) {
+          return (left.layoutColumn ?? "zz").localeCompare(right.layoutColumn ?? "zz");
+        }
+
+        if (leftOrder !== rightOrder) {
+          return leftOrder - rightOrder;
+        }
+
+        return left.title.localeCompare(right.title);
+      })
+  });
 });
 
 app.get("/families/demo/templates", async (c) => {

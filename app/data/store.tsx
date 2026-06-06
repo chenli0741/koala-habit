@@ -28,6 +28,7 @@ import {
   StartEntertainmentRunPayload,
   toMissionPayload,
   updateChildApi,
+  updateMissionLayoutApi,
   updateMissionApi
 } from "./api";
 import { childProfile, Mission, MissionCategory, MissionExecutionType, TaskAttachment, TaskEventType } from "./demo";
@@ -98,6 +99,7 @@ type KoalaStore = {
   addMission: (draft: MissionDraft) => Promise<void>;
   addMissionAttachment: (missionId: string, attachment: TaskAttachment) => Promise<void>;
   updateMission: (missionId: string, draft: MissionDraft) => Promise<void>;
+  updateMissionLayout: (layout: Array<{ id: string; layoutColumn: "primary" | "secondary"; layoutOrder: number }>) => Promise<void>;
   deleteMission: (missionId: string) => Promise<void>;
   cancelMission: (missionId: string) => Promise<void>;
   completeMission: (missionId: string, evidence?: MissionEvidence) => Promise<void>;
@@ -547,6 +549,20 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
             toMissionPayload(activeChild?.id ?? childAccounts[0]?.id ?? "caitlyn", nextMission)
           );
           setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
+        } catch {
+          setMissionItems((current) => current);
+        }
+      },
+      updateMissionLayout: async (layout) => {
+        const layoutById = new Map(layout.map((item) => [item.id, item]));
+        setMissionItems((current) => applyMissionLayout(current, layoutById));
+
+        try {
+          const childId = activeChild?.id ?? childAccounts[0]?.id ?? "caitlyn";
+          const occurrenceDate = missionItems.find((mission) => layoutById.has(mission.id))?.occurrenceDate.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+          const storedMissions = await updateMissionLayoutApi(childId, occurrenceDate, layout);
+          const storedById = new Map(storedMissions.map((mission) => [mission.id, mission]));
+          setMissionItems((current) => current.map((mission) => storedById.get(mission.id) ?? mission));
         } catch {
           setMissionItems((current) => current);
         }
@@ -1002,6 +1018,28 @@ function timerEventContent(eventType: MissionTimerEventPayload["eventType"], pay
 
 function isLimitedTimerMission(mission: Pick<Mission, "executionType" | "targetApp" | "timeLimitMinutes">) {
   return mission.executionType === "timed" || Boolean(mission.timeLimitMinutes || mission.targetApp);
+}
+
+function applyMissionLayout(missions: Mission[], layoutById: Map<string, { layoutColumn: "primary" | "secondary"; layoutOrder: number }>) {
+  return missions
+    .map((mission) => {
+      const layout = layoutById.get(mission.id);
+      return layout ? { ...mission, ...layout } : mission;
+    })
+    .sort((left, right) => {
+      const leftOrder = left.layoutOrder ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = right.layoutOrder ?? Number.MAX_SAFE_INTEGER;
+
+      if (left.layoutColumn !== right.layoutColumn) {
+        return (left.layoutColumn ?? "zz").localeCompare(right.layoutColumn ?? "zz");
+      }
+
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      return left.title.localeCompare(right.title);
+    });
 }
 
 function inferDraftExecutionType(draft: Pick<MissionDraft, "category" | "targetApp" | "timeLimitMinutes">): MissionExecutionType {

@@ -94,6 +94,8 @@ export type Mission = {
   id: string;
   templateId: string;
   occurrenceDate: string;
+  layoutColumn?: "primary" | "secondary";
+  layoutOrder?: number;
   scheduledTime?: string;
   icon: string;
   title: string;

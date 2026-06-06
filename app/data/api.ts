@@ -40,6 +40,8 @@ type ServerMission = {
   };
   actualEndAt?: string;
   actualStartAt?: string;
+  layoutColumn?: "primary" | "secondary";
+  layoutOrder?: number;
   occurrenceDate?: string;
   occurrenceStatus?: "pending" | "done" | "skipped" | "expired";
   scheduledTime?: string;
@@ -103,6 +105,12 @@ type ServerMission = {
   status: string;
   templateId?: string;
   tone?: string;
+};
+
+export type MissionLayoutItem = {
+  id: string;
+  layoutColumn: "primary" | "secondary";
+  layoutOrder: number;
 };
 
 type MissionPayload = {
@@ -278,6 +286,19 @@ export async function updateMissionApi(missionId: string, payload: MissionPayloa
   });
 
   return mapMission(data.mission);
+}
+
+export async function updateMissionLayoutApi(childId: string, occurrenceDate: string, layout: MissionLayoutItem[]) {
+  const data = await request<{ missions: ServerMission[] }>("/families/demo/missions/layout", {
+    body: JSON.stringify({
+      childId,
+      layout,
+      occurrenceDate
+    }),
+    method: "PATCH"
+  });
+
+  return data.missions.map(mapMission);
 }
 
 export async function deleteMissionApi(missionId: string) {
@@ -522,6 +543,8 @@ function mapMission(mission: ServerMission): Mission {
     id: mission.id,
     templateId: mission.templateId ?? mission.id,
     occurrenceDate: mission.occurrenceDate ?? new Date().toISOString().slice(0, 10),
+    layoutColumn: mission.layoutColumn,
+    layoutOrder: mission.layoutOrder,
     scheduledTime: mission.scheduledTime,
     icon: mission.icon ?? "📌",
     title: mission.title,

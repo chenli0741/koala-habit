@@ -47,6 +47,12 @@ export type MissionInput = {
   total: number;
 };
 
+export type MissionLayoutInput = {
+  id: string;
+  layoutColumn: "primary" | "secondary";
+  layoutOrder: number;
+};
+
 export type MissionTimerEventInput = {
   elapsedSeconds?: number;
   eventType: "timer_start" | "timer_pause" | "timer_resume" | "timer_end";
@@ -277,6 +283,17 @@ export async function initDb() {
     alter table task_occurrences add column if not exists source text not null default 'parent';
     alter table task_occurrences add column if not exists actual_start_at timestamptz;
     alter table task_occurrences add column if not exists actual_end_at timestamptz;
+    alter table task_occurrences add column if not exists layout_column text;
+    alter table task_occurrences add column if not exists layout_order integer;
+
+    create table if not exists task_occurrence_layouts (
+      mission_id text primary key,
+      child_id text not null references children(id) on delete cascade,
+      occurrence_date date not null,
+      layout_column text not null,
+      layout_order integer not null,
+      updated_at timestamptz not null default now()
+    );
 
     create table if not exists task_plan_details (
       id text primary key,
@@ -630,6 +647,8 @@ export async function getToday(childId: string) {
         coalesce(occurrence.source, template.default_source, 'parent') as source,
         occurrence.actual_start_at,
         occurrence.actual_end_at,
+        coalesce(layout.layout_column, occurrence.layout_column) as layout_column,
+        coalesce(layout.layout_order, occurrence.layout_order) as layout_order,
         template.icon,
         occurrence.title,
         template.category,
@@ -658,6 +677,7 @@ export async function getToday(childId: string) {
         coalesce(task_events.records, '[]'::jsonb) as event_records
       from task_occurrences occurrence
       join task_templates template on template.id = occurrence.template_id
+      left join task_occurrence_layouts layout on layout.mission_id = occurrence.id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
       left join lateral (
         select completed_at, actual_minutes, parent_confirmed, ai_score
@@ -716,7 +736,11 @@ export async function getToday(childId: string) {
       ) task_events on true
       where occurrence.child_id = $1
         and occurrence.occurrence_date = current_date
-      order by occurrence.created_at asc
+      order by
+        coalesce(layout.layout_column, occurrence.layout_column) asc nulls last,
+        coalesce(layout.layout_order, occurrence.layout_order) asc nulls last,
+        occurrence.scheduled_time asc nulls last,
+        occurrence.created_at asc
     `,
     [childId]
   );
@@ -763,6 +787,8 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
         coalesce(occurrence.source, template.default_source, 'parent') as source,
         occurrence.actual_start_at,
         occurrence.actual_end_at,
+        coalesce(layout.layout_column, occurrence.layout_column) as layout_column,
+        coalesce(layout.layout_order, occurrence.layout_order) as layout_order,
         template.icon,
         occurrence.title,
         template.category,
@@ -791,6 +817,7 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
         coalesce(task_events.records, '[]'::jsonb) as event_records
       from task_occurrences occurrence
       join task_templates template on template.id = occurrence.template_id
+      left join task_occurrence_layouts layout on layout.mission_id = occurrence.id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
       left join lateral (
         select completed_at, actual_minutes, parent_confirmed, ai_score
@@ -850,7 +877,12 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
       where occurrence.child_id = $1
         and ($2::date is null or occurrence.occurrence_date >= $2::date)
         and ($3::date is null or occurrence.occurrence_date <= $3::date)
-      order by occurrence.occurrence_date asc, occurrence.scheduled_time asc nulls last, occurrence.created_at asc
+      order by
+        occurrence.occurrence_date asc,
+        coalesce(layout.layout_column, occurrence.layout_column) asc nulls last,
+        coalesce(layout.layout_order, occurrence.layout_order) asc nulls last,
+        occurrence.scheduled_time asc nulls last,
+        occurrence.created_at asc
     `,
     [childId, range?.startDate ?? null, range?.endDate ?? null]
   );
@@ -1291,6 +1323,69 @@ export async function updateMission(missionId: string, input: MissionInput) {
   }
 
   return getMissionOccurrence(occurrenceId);
+}
+
+export async function updateMissionLayout(childId: string, occurrenceDate: string, layout: MissionLayoutInput[]) {
+  assertPool();
+
+  await pool!.query("begin");
+
+  try {
+    for (const item of layout) {
+      await pool!.query(
+        `
+          insert into task_occurrence_layouts (mission_id, child_id, occurrence_date, layout_column, layout_order)
+          values ($1, $2, $3::date, $4, $5)
+          on conflict (mission_id) do update
+          set child_id = excluded.child_id,
+              occurrence_date = excluded.occurrence_date,
+              layout_column = excluded.layout_column,
+              layout_order = excluded.layout_order,
+              updated_at = now()
+        `,
+        [item.id, childId, occurrenceDate, item.layoutColumn, item.layoutOrder]
+      );
+
+      let result = await pool!.query(
+        `
+          update task_occurrences
+          set layout_column = $4,
+              layout_order = $5,
+              updated_at = now()
+          where id = $1
+            and child_id = $2
+            and occurrence_date = $3::date
+        `,
+        [item.id, childId, occurrenceDate, item.layoutColumn, item.layoutOrder]
+      );
+
+      if (result.rowCount === 0) {
+        const materialized = await materializeVirtualOccurrence(item.id, occurrenceDate);
+
+        if (materialized) {
+          result = await pool!.query(
+            `
+              update task_occurrences
+              set layout_column = $4,
+                  layout_order = $5,
+                  updated_at = now()
+              where id = $1
+                and child_id = $2
+                and occurrence_date = $3::date
+            `,
+            [materialized.id, childId, occurrenceDate, item.layoutColumn, item.layoutOrder]
+          );
+        }
+      }
+    }
+
+    await pool!.query("commit");
+  } catch (error) {
+    await pool!.query("rollback");
+    throw error;
+  }
+
+  return getMissionsForChild(childId, { startDate: occurrenceDate, endDate: occurrenceDate });
 }
 
 export async function deleteMission(missionId: string) {
@@ -2342,6 +2437,25 @@ async function resolveMissionOccurrences(childId: string, range: MissionRange, s
   const storedByTemplateDate = new Map(
     storedRows.map((row) => [`${row.template_id}|${formatDbDate(row.occurrence_date)}`, row])
   );
+  const layoutResult = await pool!.query(
+    `
+      select mission_id, layout_column, layout_order
+      from task_occurrence_layouts
+      where child_id = $1
+        and occurrence_date >= $2::date
+        and occurrence_date <= $3::date
+    `,
+    [childId, range.startDate, range.endDate]
+  );
+  const layoutByMissionId = new Map(
+    layoutResult.rows.map((row) => [
+      String(row.mission_id),
+      {
+        layout_column: row.layout_column,
+        layout_order: row.layout_order
+      }
+    ])
+  );
 
   const templateResult = await pool!.query(
     `
@@ -2409,11 +2523,26 @@ async function resolveMissionOccurrences(childId: string, range: MissionRange, s
   }
 
   return rows
+    .map((row) => ({
+      ...row,
+      ...layoutByMissionId.get(String(row.id))
+    }))
     .map(mapMission)
     .sort((a, b) => {
       const dateCompare = a.occurrenceDate.localeCompare(b.occurrenceDate);
       if (dateCompare !== 0) {
         return dateCompare;
+      }
+
+      if (a.layoutColumn !== b.layoutColumn) {
+        return (a.layoutColumn ?? "zz").localeCompare(b.layoutColumn ?? "zz");
+      }
+
+      const leftOrder = a.layoutOrder ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = b.layoutOrder ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
       }
 
       return (a.scheduledTime || "99:99").localeCompare(b.scheduledTime || "99:99");
@@ -2500,6 +2629,11 @@ function mapMission(row: Record<string, unknown>) {
     childId: String(row.child_id),
     templateId: String(row.template_id ?? row.id),
     occurrenceDate: formatDbDate(row.occurrence_date),
+    layoutColumn:
+      row.layout_column === "primary" || row.layout_column === "secondary"
+        ? row.layout_column
+        : undefined,
+    layoutOrder: row.layout_order === null || row.layout_order === undefined ? undefined : Number(row.layout_order),
     scheduledTime: row.scheduled_time === null || row.scheduled_time === undefined ? "" : String(row.scheduled_time),
     icon: String(row.icon),
     title: String(row.title),

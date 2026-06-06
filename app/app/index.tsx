@@ -1,12 +1,14 @@
 import { Link, Redirect, router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Image, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { fetchMissions, uploadMissionFileApi } from "../data/api";
 import { childProfile, Mission } from "../data/demo";
 import { profileForChild, useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
 
 type TaskViewMode = "day" | "week";
+type DayColumnKey = "primary" | "secondary";
+type DayMissionColumns = Record<DayColumnKey, Mission[]>;
 type CalendarDay = {
   dayNumber: number;
   key: string;
@@ -16,7 +18,7 @@ type CalendarDay = {
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function HomeScreen() {
-  const { activeChild, children, completedCount, isSessionReady, language, missions, parent, setLanguage, t, todayEnergy, updateChild } = useKoalaStore();
+  const { activeChild, children, completedCount, isSessionReady, language, missions, parent, setLanguage, t, todayEnergy, updateChild, updateMissionLayout } = useKoalaStore();
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>("day");
   const [calendarMissions, setCalendarMissions] = useState<Mission[]>([]);
   const [isCalendarLoading, setIsCalendarLoading] = useState(false);
@@ -168,6 +170,7 @@ export default function HomeScreen() {
               missions={scheduleMissions}
               t={t}
               today={today}
+              onSaveMissionLayout={updateMissionLayout}
               viewMode={taskViewMode}
             />
           </View>
@@ -371,6 +374,7 @@ function TaskSchedule({
   calendarDays,
   isLoading,
   missions,
+  onSaveMissionLayout,
   t,
   today,
   viewMode
@@ -378,10 +382,59 @@ function TaskSchedule({
   calendarDays: CalendarDay[];
   isLoading: boolean;
   missions: Mission[];
+  onSaveMissionLayout?: (layout: Array<{ id: string; layoutColumn: DayColumnKey; layoutOrder: number }>) => Promise<void>;
   t: (key: string) => string;
   today: string;
   viewMode: TaskViewMode;
 }) {
+  const [dayColumns, setDayColumns] = useState<DayMissionColumns>(() => splitDayMissions(missions));
+  const [isReordering, setIsReordering] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const dragStartRef = useRef<{ column: DayColumnKey; index: number } | null>(null);
+
+  useEffect(() => {
+    if (!isReordering) {
+      setDayColumns(splitDayMissions(missions));
+    }
+  }, [isReordering, missions]);
+
+  function enterReorderMode(missionId: string) {
+    setIsReordering(true);
+    startDrag(missionId);
+  }
+
+  function startDrag(missionId: string) {
+    const position = findMissionPosition(dayColumns, missionId);
+    dragStartRef.current = position;
+    setDraggingId(missionId);
+  }
+
+  function moveDrag(missionId: string, dx: number, dy: number) {
+    const start = dragStartRef.current;
+
+    if (!start) {
+      return;
+    }
+
+    setDayColumns((current) => moveMissionInColumns(current, missionId, start, dx, dy));
+  }
+
+  function endDrag() {
+    setDraggingId(null);
+    dragStartRef.current = null;
+  }
+
+  async function saveLayout() {
+    if (!isReordering) {
+      return;
+    }
+
+    const layout = flattenDayLayout(dayColumns);
+    endDrag();
+    await onSaveMissionLayout?.(layout);
+    setIsReordering(false);
+  }
+
   if (isLoading) {
     return (
       <View style={styles.emptyState}>
@@ -425,62 +478,152 @@ function TaskSchedule({
     );
   }
 
-  const { primary, secondary } = splitDayMissions(missions);
-
   return (
     <ScrollView style={styles.scheduleScroll} contentContainerStyle={styles.scheduleScrollContent}>
-      <View style={styles.dayBoard}>
-        <View style={styles.dayColumn}>{primary.map((mission) => <MissionCard key={mission.id} mission={mission} t={t} />)}</View>
-        <View style={styles.dayColumn}>{secondary.map((mission) => <MissionCard key={mission.id} mission={mission} t={t} />)}</View>
-      </View>
+      <Pressable style={styles.dayBoardTapTarget} onPress={saveLayout}>
+        <View style={styles.dayBoard}>
+          <View style={styles.dayColumn}>
+            {dayColumns.primary.map((mission) => (
+              <MissionCard
+                key={mission.id}
+                isDragging={draggingId === mission.id}
+                isReordering={isReordering}
+                mission={mission}
+                t={t}
+                onDragEnd={endDrag}
+                onDragMove={moveDrag}
+                onDragStart={startDrag}
+                onEnterReorder={enterReorderMode}
+              />
+            ))}
+          </View>
+          <View style={styles.dayColumn}>
+            {dayColumns.secondary.map((mission) => (
+              <MissionCard
+                key={mission.id}
+                isDragging={draggingId === mission.id}
+                isReordering={isReordering}
+                mission={mission}
+                t={t}
+                onDragEnd={endDrag}
+                onDragMove={moveDrag}
+                onDragStart={startDrag}
+                onEnterReorder={enterReorderMode}
+              />
+            ))}
+          </View>
+        </View>
+      </Pressable>
     </ScrollView>
   );
 }
 
-function MissionCard({ mission, t }: { mission: Mission; t: (key: string) => string }) {
+function MissionCard({
+  isDragging = false,
+  isReordering = false,
+  mission,
+  onDragEnd,
+  onDragMove,
+  onDragStart,
+  onEnterReorder,
+  t
+}: {
+  isDragging?: boolean;
+  isReordering?: boolean;
+  mission: Mission;
+  onDragEnd?: () => void;
+  onDragMove?: (missionId: string, dx: number, dy: number) => void;
+  onDragStart?: (missionId: string) => void;
+  onEnterReorder?: (missionId: string) => void;
+  t: (key: string) => string;
+}) {
   const missionKind = kindForMission(mission);
   const percent = missionKind === "schedule" ? (mission.status === "done" ? 100 : 0) : Math.round((mission.progress / mission.total) * 100);
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: () => isReordering,
+        onStartShouldSetPanResponder: () => isReordering,
+        onPanResponderGrant: () => onDragStart?.(mission.id),
+        onPanResponderMove: (_, gestureState) => onDragMove?.(mission.id, gestureState.dx, gestureState.dy),
+        onPanResponderRelease: () => onDragEnd?.(),
+        onPanResponderTerminate: () => onDragEnd?.()
+      }),
+    [isReordering, mission.id, onDragEnd, onDragMove, onDragStart]
+  );
+
+  const card = (
+    <Pressable
+      delayLongPress={3000}
+      onLongPress={() => onEnterReorder?.(mission.id)}
+      style={StyleSheet.flatten([
+        styles.missionCard,
+        missionKind === "schedule" && styles.scheduleMissionCard,
+        isReordering && styles.reorderMissionCard,
+        isDragging && styles.draggingMissionCard
+      ])}
+      {...(isReordering ? panResponder.panHandlers : {})}
+    >
+      <View style={styles.missionIconSlot}>
+        <Text style={styles.missionIcon}>{mission.icon}</Text>
+      </View>
+      <View style={styles.missionBody}>
+        <View style={styles.missionTitleRow}>
+          <Text numberOfLines={1} style={styles.missionLabel}>{mission.title}</Text>
+          <Text numberOfLines={1} style={styles.status}>{missionStatusText(mission.status, t)}</Text>
+        </View>
+        <View style={styles.missionMetaRow}>
+          <Text numberOfLines={1} style={styles.missionDetail}>{missionDetailText(mission)}</Text>
+          <View style={styles.missionPills}>
+            {missionKind === "schedule" && mission.scheduledTime ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.scheduledTime}</Text> : null}
+            {missionKind === "timed" && mission.targetApp ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.targetApp}</Text> : null}
+            {missionKind === "timed" && mission.timeLimitMinutes ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text> : null}
+          </View>
+        </View>
+        <View style={styles.missionProgressRow}>
+          {missionKind === "schedule" ? (
+            <Text numberOfLines={1} style={styles.actionHint}>Done · Cancel · Edit</Text>
+          ) : missionKind === "timed" ? (
+            <Text numberOfLines={1} style={styles.actionHint}>{timedActionText(mission)}</Text>
+          ) : (
+            <View style={styles.progressTrack}>
+              <View style={StyleSheet.flatten([styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }])} />
+            </View>
+          )}
+          <Text style={styles.missionCount}>
+            {missionKind === "schedule" ? formatShortDate(mission.occurrenceDate) : formatPoints(mission.energy)}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+
+  if (isReordering) {
+    return card;
+  }
 
   return (
     <Link href={`/mission/${mission.id}`} asChild>
-      <Pressable style={StyleSheet.flatten([styles.missionCard, missionKind === "schedule" && styles.scheduleMissionCard])}>
-        <View style={styles.missionIconSlot}>
-          <Text style={styles.missionIcon}>{mission.icon}</Text>
-        </View>
-        <View style={styles.missionBody}>
-          <View style={styles.missionTitleRow}>
-            <Text numberOfLines={1} style={styles.missionLabel}>{mission.title}</Text>
-            <Text numberOfLines={1} style={styles.status}>{missionStatusText(mission.status, t)}</Text>
-          </View>
-          <View style={styles.missionMetaRow}>
-            <Text numberOfLines={1} style={styles.missionDetail}>{missionDetailText(mission)}</Text>
-            <View style={styles.missionPills}>
-              {missionKind === "schedule" && mission.scheduledTime ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.scheduledTime}</Text> : null}
-              {missionKind === "timed" && mission.targetApp ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.targetApp}</Text> : null}
-              {missionKind === "timed" && mission.timeLimitMinutes ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text> : null}
-            </View>
-          </View>
-          <View style={styles.missionProgressRow}>
-            {missionKind === "schedule" ? (
-              <Text numberOfLines={1} style={styles.actionHint}>Done · Cancel · Edit</Text>
-            ) : missionKind === "timed" ? (
-              <Text numberOfLines={1} style={styles.actionHint}>{timedActionText(mission)}</Text>
-            ) : (
-              <View style={styles.progressTrack}>
-                <View style={StyleSheet.flatten([styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }])} />
-              </View>
-            )}
-            <Text style={styles.missionCount}>
-              {missionKind === "schedule" ? formatShortDate(mission.occurrenceDate) : formatPoints(mission.energy)}
-            </Text>
-          </View>
-        </View>
-      </Pressable>
+      {card}
     </Link>
   );
 }
 
 function splitDayMissions(missions: Mission[]) {
+  const placedMissions = missions.filter((mission) => mission.layoutColumn);
+
+  if (placedMissions.length > 0) {
+    const unplaced = splitDefaultDayMissions(missions.filter((mission) => !mission.layoutColumn));
+    return {
+      primary: [...sortPlacedMissions(missions.filter((mission) => mission.layoutColumn === "primary")), ...unplaced.primary],
+      secondary: [...sortPlacedMissions(missions.filter((mission) => mission.layoutColumn === "secondary")), ...unplaced.secondary]
+    };
+  }
+
+  return splitDefaultDayMissions(missions);
+}
+
+function splitDefaultDayMissions(missions: Mission[]) {
   const primary = missions.filter(isTimeSensitiveMission);
   const secondary = missions.filter((mission) => !isTimeSensitiveMission(mission));
 
@@ -492,6 +635,72 @@ function splitDayMissions(missions: Mission[]) {
   }
 
   return { primary, secondary };
+}
+
+function sortPlacedMissions(missions: Mission[]) {
+  return [...missions].sort((left, right) => {
+    const leftOrder = left.layoutOrder ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = right.layoutOrder ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return left.title.localeCompare(right.title);
+  });
+}
+
+function findMissionPosition(columns: DayMissionColumns, missionId: string) {
+  for (const column of ["primary", "secondary"] as const) {
+    const index = columns[column].findIndex((mission) => mission.id === missionId);
+
+    if (index >= 0) {
+      return { column, index };
+    }
+  }
+
+  return null;
+}
+
+function moveMissionInColumns(
+  columns: DayMissionColumns,
+  missionId: string,
+  start: { column: DayColumnKey; index: number },
+  dx: number,
+  dy: number
+) {
+  const mission = columns.primary.concat(columns.secondary).find((item) => item.id === missionId);
+
+  if (!mission) {
+    return columns;
+  }
+
+  const targetColumn: DayColumnKey = dx > 72 ? "secondary" : dx < -72 ? "primary" : start.column;
+  const withoutMission: DayMissionColumns = {
+    primary: columns.primary.filter((item) => item.id !== missionId),
+    secondary: columns.secondary.filter((item) => item.id !== missionId)
+  };
+  const targetList = withoutMission[targetColumn];
+  const targetIndex = clamp(start.index + Math.round(dy / 122), 0, targetList.length);
+
+  return {
+    ...withoutMission,
+    [targetColumn]: [...targetList.slice(0, targetIndex), mission, ...targetList.slice(targetIndex)]
+  };
+}
+
+function flattenDayLayout(columns: DayMissionColumns) {
+  return (["primary", "secondary"] as const).flatMap((layoutColumn) =>
+    columns[layoutColumn].map((mission, layoutOrder) => ({
+      id: mission.id,
+      layoutColumn,
+      layoutOrder
+    }))
+  );
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function isTimeSensitiveMission(mission: Mission) {
@@ -1029,6 +1238,9 @@ const styles = StyleSheet.create({
     gap: 12,
     alignItems: "flex-start"
   },
+  dayBoardTapTarget: {
+    minHeight: "100%"
+  },
   dayColumn: {
     flex: 1,
     minWidth: 0
@@ -1049,6 +1261,14 @@ const styles = StyleSheet.create({
   },
   scheduleMissionCard: {
     backgroundColor: "#F8FAFC"
+  },
+  reorderMissionCard: {
+    borderColor: palette.green,
+    backgroundColor: "#F7FBF4"
+  },
+  draggingMissionCard: {
+    transform: [{ scale: 1.02 }],
+    opacity: 0.9
   },
   missionIconSlot: {
     width: 54,
