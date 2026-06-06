@@ -678,19 +678,23 @@ export default function Page() {
       return;
     }
 
-    await request(`/families/${encodeURIComponent(family.id)}/children`, {
-      body: JSON.stringify({
-        avatarUri: childForm.avatarUri || undefined,
-        grade: Number(childForm.grade),
-        name: childForm.name,
-        pin: childForm.pin
-      }),
-      method: "POST"
-    });
-    setMessage(t("childProfileCreated"));
-    setChildForm({ avatarUri: "", grade: "3", name: "", pin: "1234" });
-    setEditingChildId(null);
-    await loadFamily(family.id);
+    try {
+      await request(`/families/${encodeURIComponent(family.id)}/children`, {
+        body: JSON.stringify({
+          avatarUri: childForm.avatarUri || undefined,
+          grade: Number(childForm.grade),
+          name: childForm.name,
+          pin: childForm.pin
+        }),
+        method: "POST"
+      });
+      setMessage(t("childProfileCreated"));
+      setChildForm({ avatarUri: "", grade: "3", name: "", pin: "1234" });
+      setEditingChildId(null);
+      await loadFamily(family.id);
+    } catch (error) {
+      setMessage(readableRequestError(error, t));
+    }
   }
 
   async function saveChildProfile(event: FormEvent) {
@@ -701,19 +705,23 @@ export default function Page() {
       return;
     }
 
-    await request(`/families/${encodeURIComponent(family.id)}/children/${encodeURIComponent(editingChildId)}`, {
-      body: JSON.stringify({
-        avatarUri: childForm.avatarUri || undefined,
-        grade: Number(childForm.grade),
-        name: childForm.name,
-        pin: childForm.pin || undefined
-      }),
-      method: "PATCH"
-    });
-    setMessage(t("saveChanges"));
-    setEditingChildId(null);
-    setChildForm({ avatarUri: "", grade: "3", name: "", pin: "1234" });
-    await loadFamily(family.id);
+    try {
+      await request(`/families/${encodeURIComponent(family.id)}/children/${encodeURIComponent(editingChildId)}`, {
+        body: JSON.stringify({
+          avatarUri: childForm.avatarUri || undefined,
+          grade: Number(childForm.grade),
+          name: childForm.name,
+          pin: childForm.pin || undefined
+        }),
+        method: "PATCH"
+      });
+      setMessage(t("saveChanges"));
+      setEditingChildId(null);
+      setChildForm({ avatarUri: "", grade: "3", name: "", pin: "1234" });
+      await loadFamily(family.id);
+    } catch (error) {
+      setMessage(readableRequestError(error, t));
+    }
   }
 
   function startEditChild(child: Child) {
@@ -1352,7 +1360,7 @@ export default function Page() {
               </label>
             </div>
             <label>{t("childName")}<input value={childForm.name} onChange={(event) => setChildForm({ ...childForm, name: event.target.value })} /></label>
-            <label>{t("grade")}<input value={childForm.grade} onChange={(event) => setChildForm({ ...childForm, grade: event.target.value })} /></label>
+            <label>{t("grade")}<input inputMode="numeric" max="12" min="0" type="number" value={childForm.grade} onChange={(event) => setChildForm({ ...childForm, grade: event.target.value })} /></label>
             <label>PIN<input placeholder={editingChildId ? (language === "zh" ? "留空则不修改" : "Leave blank to keep current PIN") : "1234"} value={childForm.pin} onChange={(event) => setChildForm({ ...childForm, pin: event.target.value.replace(/\D/g, "") })} /></label>
             <button type="submit">{editingChildId ? t("saveChanges") : t("createChild")}</button>
             {editingChildId ? <button className="secondary" type="button" onClick={() => { setEditingChildId(null); setChildForm({ avatarUri: "", grade: "3", name: "", pin: "1234" }); }}>{t("cancel")}</button> : null}
