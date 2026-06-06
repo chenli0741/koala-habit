@@ -403,7 +403,7 @@ function TaskSchedule({
   if (viewMode === "week") {
     return (
       <ScrollView style={styles.scheduleScroll} contentContainerStyle={styles.scheduleScrollContent}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.weekBoard}>
+        <View style={styles.weekBoard}>
           {calendarDays.map((day) => {
             const dayMissions = missionsForDate(missions, day.key);
             const done = dayMissions.filter((mission) => mission.status === "done").length;
@@ -420,56 +420,82 @@ function TaskSchedule({
               </View>
             );
           })}
-        </ScrollView>
+        </View>
       </ScrollView>
     );
   }
 
+  const { primary, secondary } = splitDayMissions(missions);
+
   return (
     <ScrollView style={styles.scheduleScroll} contentContainerStyle={styles.scheduleScrollContent}>
-      {missions.map((mission) => {
-        const missionKind = kindForMission(mission);
-          const percent = missionKind === "schedule" ? (mission.status === "done" ? 100 : 0) : Math.round((mission.progress / mission.total) * 100);
-        return (
-          <Link key={mission.id} href={`/mission/${mission.id}`} asChild>
-            <Pressable style={StyleSheet.flatten([styles.missionCard, missionKind === "schedule" && styles.scheduleMissionCard])}>
-              <View style={styles.missionIconSlot}>
-                <Text style={styles.missionIcon}>{mission.icon}</Text>
-              </View>
-              <View style={styles.missionBody}>
-                <View style={styles.missionTitleRow}>
-                  <Text numberOfLines={1} style={styles.missionLabel}>{mission.title}</Text>
-                  <Text numberOfLines={1} style={styles.status}>{missionStatusText(mission.status, t)}</Text>
-                </View>
-                <View style={styles.missionMetaRow}>
-                  <Text numberOfLines={1} style={styles.missionDetail}>{missionDetailText(mission)}</Text>
-                  <View style={styles.missionPills}>
-                    {missionKind === "schedule" && mission.scheduledTime ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.scheduledTime}</Text> : null}
-                    {missionKind === "timed" && mission.targetApp ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.targetApp}</Text> : null}
-                    {missionKind === "timed" && mission.timeLimitMinutes ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text> : null}
-                  </View>
-                </View>
-                <View style={styles.missionProgressRow}>
-                  {missionKind === "schedule" ? (
-                    <Text numberOfLines={1} style={styles.actionHint}>Done · Cancel · Edit</Text>
-                  ) : missionKind === "timed" ? (
-                    <Text numberOfLines={1} style={styles.actionHint}>{timedActionText(mission)}</Text>
-                  ) : (
-                    <View style={styles.progressTrack}>
-                      <View style={StyleSheet.flatten([styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }])} />
-                    </View>
-                  )}
-                  <Text style={styles.missionCount}>
-                    {missionKind === "schedule" ? formatShortDate(mission.occurrenceDate) : formatPoints(mission.energy)}
-                  </Text>
-                </View>
-              </View>
-            </Pressable>
-          </Link>
-        );
-      })}
+      <View style={styles.dayBoard}>
+        <View style={styles.dayColumn}>{primary.map((mission) => <MissionCard key={mission.id} mission={mission} t={t} />)}</View>
+        <View style={styles.dayColumn}>{secondary.map((mission) => <MissionCard key={mission.id} mission={mission} t={t} />)}</View>
+      </View>
     </ScrollView>
   );
+}
+
+function MissionCard({ mission, t }: { mission: Mission; t: (key: string) => string }) {
+  const missionKind = kindForMission(mission);
+  const percent = missionKind === "schedule" ? (mission.status === "done" ? 100 : 0) : Math.round((mission.progress / mission.total) * 100);
+
+  return (
+    <Link href={`/mission/${mission.id}`} asChild>
+      <Pressable style={StyleSheet.flatten([styles.missionCard, missionKind === "schedule" && styles.scheduleMissionCard])}>
+        <View style={styles.missionIconSlot}>
+          <Text style={styles.missionIcon}>{mission.icon}</Text>
+        </View>
+        <View style={styles.missionBody}>
+          <View style={styles.missionTitleRow}>
+            <Text numberOfLines={1} style={styles.missionLabel}>{mission.title}</Text>
+            <Text numberOfLines={1} style={styles.status}>{missionStatusText(mission.status, t)}</Text>
+          </View>
+          <View style={styles.missionMetaRow}>
+            <Text numberOfLines={1} style={styles.missionDetail}>{missionDetailText(mission)}</Text>
+            <View style={styles.missionPills}>
+              {missionKind === "schedule" && mission.scheduledTime ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.scheduledTime}</Text> : null}
+              {missionKind === "timed" && mission.targetApp ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.targetApp}</Text> : null}
+              {missionKind === "timed" && mission.timeLimitMinutes ? <Text numberOfLines={1} style={styles.timeLimitPill}>{mission.timeLimitMinutes} min</Text> : null}
+            </View>
+          </View>
+          <View style={styles.missionProgressRow}>
+            {missionKind === "schedule" ? (
+              <Text numberOfLines={1} style={styles.actionHint}>Done · Cancel · Edit</Text>
+            ) : missionKind === "timed" ? (
+              <Text numberOfLines={1} style={styles.actionHint}>{timedActionText(mission)}</Text>
+            ) : (
+              <View style={styles.progressTrack}>
+                <View style={StyleSheet.flatten([styles.progressFill, { width: `${percent}%`, backgroundColor: mission.tone }])} />
+              </View>
+            )}
+            <Text style={styles.missionCount}>
+              {missionKind === "schedule" ? formatShortDate(mission.occurrenceDate) : formatPoints(mission.energy)}
+            </Text>
+          </View>
+        </View>
+      </Pressable>
+    </Link>
+  );
+}
+
+function splitDayMissions(missions: Mission[]) {
+  const primary = missions.filter(isTimeSensitiveMission);
+  const secondary = missions.filter((mission) => !isTimeSensitiveMission(mission));
+
+  if (primary.length === 0 || secondary.length === 0) {
+    return {
+      primary: missions.filter((_, index) => index % 2 === 0),
+      secondary: missions.filter((_, index) => index % 2 === 1)
+    };
+  }
+
+  return { primary, secondary };
+}
+
+function isTimeSensitiveMission(mission: Mission) {
+  return kindForMission(mission) !== "completion" || Boolean(mission.scheduledTime || mission.timeLimitMinutes || mission.targetApp);
 }
 
 function missionStatusText(status: Mission["status"], t: (key: string) => string) {
@@ -916,25 +942,27 @@ const styles = StyleSheet.create({
   },
   contentGrid: {
     flex: 1,
-    flexDirection: "row",
-    gap: 22,
+    gap: 14,
     minHeight: 0
   },
   missionPanel: {
     ...shared.card,
-    flex: 1.45,
+    flex: 1,
     minHeight: 0,
     overflow: "hidden"
   },
   companionPanel: {
-    flex: 1,
-    minHeight: 0,
+    width: 420,
+    minHeight: 188,
+    maxHeight: 220,
+    alignSelf: "flex-end",
     backgroundColor: "#E7F0E2",
     borderRadius: 8,
-    padding: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: "#C9D9C1",
-    alignItems: "center"
+    alignItems: "center",
+    flexShrink: 0
   },
   panelTitle: {
     fontSize: 20,
@@ -998,6 +1026,15 @@ const styles = StyleSheet.create({
   },
   scheduleScrollContent: {
     paddingBottom: 2
+  },
+  dayBoard: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start"
+  },
+  dayColumn: {
+    flex: 1,
+    minWidth: 0
   },
   missionCard: {
     minHeight: 108,
@@ -1139,11 +1176,13 @@ const styles = StyleSheet.create({
     marginTop: 6
   },
   weekBoard: {
+    flexDirection: "row",
     gap: 10,
     paddingBottom: 4
   },
   weekColumn: {
-    width: 132,
+    flex: 1,
+    minWidth: 0,
     minHeight: 260,
     borderRadius: 8,
     borderWidth: 1,
@@ -1189,89 +1228,89 @@ const styles = StyleSheet.create({
     fontWeight: "900"
   },
   bigCompanion: {
-    width: 230,
-    height: 210,
+    width: 112,
+    height: 92,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 18,
-    marginBottom: 22
+    marginTop: 6,
+    marginBottom: 10
   },
   bigEarLeft: {
     position: "absolute",
-    left: 18,
-    top: 12,
-    width: 82,
-    height: 82,
-    borderRadius: 41,
+    left: 10,
+    top: 4,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: "#526350"
   },
   bigEarRight: {
     position: "absolute",
-    right: 18,
-    top: 12,
-    width: 82,
-    height: 82,
-    borderRadius: 41,
+    right: 10,
+    top: 4,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: "#526350"
   },
   bigFace: {
-    width: 178,
-    height: 160,
-    borderRadius: 89,
+    width: 84,
+    height: 76,
+    borderRadius: 42,
     backgroundColor: palette.leaf,
-    borderWidth: 12,
+    borderWidth: 6,
     borderColor: "#526350",
     alignItems: "center",
     justifyContent: "center"
   },
   eyeRow: {
     flexDirection: "row",
-    gap: 44,
-    marginBottom: 14
+    gap: 20,
+    marginBottom: 7
   },
   eye: {
-    width: 13,
-    height: 13,
-    borderRadius: 7,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
     backgroundColor: palette.ink
   },
   nose: {
-    width: 28,
-    height: 20,
-    borderRadius: 12,
+    width: 16,
+    height: 11,
+    borderRadius: 6,
     backgroundColor: palette.ink
   },
   companionName: {
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: 20,
+    lineHeight: 24,
     fontWeight: "900",
     color: palette.ink,
     textAlign: "center"
   },
   companionText: {
-    marginTop: 10,
-    fontSize: 16,
-    lineHeight: 23,
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 18,
     color: "#526350",
     textAlign: "center"
   },
   growthTrack: {
     width: "100%",
-    height: 12,
-    borderRadius: 6,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: "#D1DECB",
-    marginTop: 22,
+    marginTop: 10,
     overflow: "hidden"
   },
   growthFill: {
-    height: 12,
-    borderRadius: 6,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: palette.green
   },
   reminderLink: {
-    marginTop: 18,
-    minHeight: 42,
-    borderRadius: 21,
+    marginTop: 10,
+    minHeight: 34,
+    borderRadius: 17,
     paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
