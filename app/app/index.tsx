@@ -479,7 +479,7 @@ function TaskSchedule({
   }
 
   return (
-    <ScrollView style={styles.scheduleScroll} contentContainerStyle={styles.scheduleScrollContent}>
+    <ScrollView scrollEnabled={!isReordering} style={styles.scheduleScroll} contentContainerStyle={styles.scheduleScrollContent}>
       <Pressable style={styles.dayBoardTapTarget} onPress={saveLayout}>
         <View style={styles.dayBoard}>
           <View style={styles.dayColumn}>
@@ -542,19 +542,22 @@ function MissionCard({
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: () => isReordering,
-        onStartShouldSetPanResponder: () => isReordering,
-        onPanResponderGrant: () => onDragStart?.(mission.id),
+        onMoveShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => {
+          onEnterReorder?.(mission.id);
+          onDragStart?.(mission.id);
+        },
         onPanResponderMove: (_, gestureState) => onDragMove?.(mission.id, gestureState.dx, gestureState.dy),
         onPanResponderRelease: () => onDragEnd?.(),
         onPanResponderTerminate: () => onDragEnd?.()
       }),
-    [isReordering, mission.id, onDragEnd, onDragMove, onDragStart]
+    [mission.id, onDragEnd, onDragMove, onDragStart, onEnterReorder]
   );
 
   const card = (
     <Pressable
-      delayLongPress={3000}
+      delayLongPress={800}
       onLongPress={() => onEnterReorder?.(mission.id)}
       style={StyleSheet.flatten([
         styles.missionCard,
@@ -562,8 +565,10 @@ function MissionCard({
         isReordering && styles.reorderMissionCard,
         isDragging && styles.draggingMissionCard
       ])}
-      {...(isReordering ? panResponder.panHandlers : {})}
     >
+      <View style={styles.dragHandle} {...panResponder.panHandlers}>
+        <Text style={styles.dragHandleIcon}>☰</Text>
+      </View>
       <View style={styles.missionIconSlot}>
         <Text style={styles.missionIcon}>{mission.icon}</Text>
       </View>
@@ -1269,6 +1274,21 @@ const styles = StyleSheet.create({
   draggingMissionCard: {
     transform: [{ scale: 1.02 }],
     opacity: 0.9
+  },
+  dragHandle: {
+    width: 32,
+    height: 64,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    backgroundColor: "#EEF3EA",
+    flexShrink: 0
+  },
+  dragHandleIcon: {
+    color: palette.green,
+    fontSize: 20,
+    lineHeight: 22,
+    fontWeight: "900"
   },
   missionIconSlot: {
     width: 54,
