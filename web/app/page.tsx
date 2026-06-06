@@ -2691,7 +2691,7 @@ async function attachFiles(files: FileList | null, form: TaskForm, onChange: (fo
       mimeType: file.type || undefined,
       name: file.name,
       size: file.size,
-      uri: await readFileAsDataUrl(file)
+      uri: await uploadFile(file, "attachment", form.title || "task")
     }))
   );
 
@@ -2703,16 +2703,26 @@ async function readChildAvatarFile(file: File | undefined, onChange: (avatarUri:
     return;
   }
 
-  onChange(await readFileAsDataUrl(file));
+  onChange(await uploadFile(file, "avatar", "child"));
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
+async function uploadFile(file: File, kind: "attachment" | "avatar", missionId: string) {
+  const formData = new FormData();
+  formData.append("kind", kind);
+  formData.append("missionId", missionId);
+  formData.append("file", file);
+
+  const response = await fetch(`${apiBaseUrl}/uploads`, {
+    body: formData,
+    method: "POST"
   });
+
+  if (!response.ok) {
+    throw new Error(`File upload failed: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { url: string };
+  return data.url;
 }
 
 function attachmentLabel(mimeType?: string, size?: number) {
