@@ -121,6 +121,20 @@ export default function HomeScreen() {
           <Text style={styles.energyValue}>⭐ {todayEnergy}</Text>
           <Text style={styles.energyMeta}>{t("readingStreak")}: {profile.readingStreakDays}</Text>
         </View>
+        <View style={styles.companionPanel}>
+          <Text style={styles.panelTitle}>{t("growthTree")}</Text>
+          <LargeKoala />
+          <Text style={styles.companionName}>Lv{childProfile.treeLevel} {t("youngTree")}</Text>
+          <Text style={styles.companionText}>
+            {completedCount}/{totalTasks} {t("todayComplete")}
+          </Text>
+          <View style={styles.growthTrack}>
+            <View style={StyleSheet.flatten([styles.growthFill, { width: `${childProfile.treeGrowth}%` }])} />
+          </View>
+          <Link href="/reminders" style={styles.reminderLink}>
+            <Text style={styles.reminderText}>{t("reminders")}</Text>
+          </Link>
+        </View>
       </View>
 
       <View style={styles.main}>
@@ -158,20 +172,6 @@ export default function HomeScreen() {
             />
           </View>
 
-          <View style={styles.companionPanel}>
-            <Text style={styles.panelTitle}>{t("growthTree")}</Text>
-            <LargeKoala />
-            <Text style={styles.companionName}>Lv{childProfile.treeLevel} {t("youngTree")}</Text>
-            <Text style={styles.companionText}>
-              {completedCount}/{totalTasks} {t("todayComplete")}
-            </Text>
-            <View style={styles.growthTrack}>
-              <View style={StyleSheet.flatten([styles.growthFill, { width: `${childProfile.treeGrowth}%` }])} />
-            </View>
-            <Link href="/reminders" style={styles.reminderLink}>
-              <Text style={styles.reminderText}>{t("reminders")}</Text>
-            </Link>
-          </View>
         </View>
       </View>
       <ChildProfileEditor
@@ -942,7 +942,6 @@ const styles = StyleSheet.create({
   },
   contentGrid: {
     flex: 1,
-    gap: 14,
     minHeight: 0
   },
   missionPanel: {
@@ -952,17 +951,15 @@ const styles = StyleSheet.create({
     overflow: "hidden"
   },
   companionPanel: {
-    width: 420,
+    width: "100%",
     minHeight: 188,
-    maxHeight: 220,
-    alignSelf: "flex-end",
+    alignSelf: "stretch",
     backgroundColor: "#E7F0E2",
     borderRadius: 8,
     padding: 16,
     borderWidth: 1,
     borderColor: "#C9D9C1",
-    alignItems: "center",
-    flexShrink: 0
+    alignItems: "center"
   },
   panelTitle: {
     fontSize: 20,
