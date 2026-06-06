@@ -390,7 +390,8 @@ function TaskSchedule({
   const [dayColumns, setDayColumns] = useState<DayMissionColumns>(() => splitDayMissions(missions));
   const [isReordering, setIsReordering] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const dragStartRef = useRef<{ column: DayColumnKey; index: number } | null>(null);
+  const dragStepRef = useRef({ x: 0, y: 0 });
+  const suppressNextSaveRef = useRef(false);
 
   useEffect(() => {
     if (!isReordering) {
@@ -400,32 +401,45 @@ function TaskSchedule({
 
   function enterReorderMode(missionId: string) {
     setIsReordering(true);
-    startDrag(missionId);
+    setDraggingId(null);
   }
 
   function startDrag(missionId: string) {
-    const position = findMissionPosition(dayColumns, missionId);
-    dragStartRef.current = position;
+    dragStepRef.current = { x: 0, y: 0 };
+    suppressNextSaveRef.current = true;
     setDraggingId(missionId);
   }
 
   function moveDrag(missionId: string, dx: number, dy: number) {
-    const start = dragStartRef.current;
+    const nextStep = {
+      x: dx > 56 ? 1 : dx < -56 ? -1 : 0,
+      y: Math.trunc(dy / 72)
+    };
+    const previousStep = dragStepRef.current;
 
-    if (!start) {
+    if (nextStep.x === previousStep.x && nextStep.y === previousStep.y) {
       return;
     }
 
-    setDayColumns((current) => moveMissionInColumns(current, missionId, start, dx, dy));
+    dragStepRef.current = nextStep;
+    setDayColumns((current) => moveMissionInColumns(current, missionId, nextStep.x, nextStep.y - previousStep.y));
   }
 
   function endDrag() {
     setDraggingId(null);
-    dragStartRef.current = null;
+    dragStepRef.current = { x: 0, y: 0 };
+    setTimeout(() => {
+      suppressNextSaveRef.current = false;
+    }, 200);
   }
 
   async function saveLayout() {
     if (!isReordering) {
+      return;
+    }
+
+    if (suppressNextSaveRef.current) {
+      suppressNextSaveRef.current = false;
       return;
     }
 
@@ -557,7 +571,7 @@ function MissionCard({
 
   const card = (
     <Pressable
-      delayLongPress={800}
+      delayLongPress={1000}
       onLongPress={() => onEnterReorder?.(mission.id)}
       style={StyleSheet.flatten([
         styles.missionCard,
@@ -566,9 +580,11 @@ function MissionCard({
         isDragging && styles.draggingMissionCard
       ])}
     >
-      <View style={styles.dragHandle} {...panResponder.panHandlers}>
-        <Text style={styles.dragHandleIcon}>☰</Text>
-      </View>
+      {isReordering ? (
+        <View style={styles.dragHandle} {...panResponder.panHandlers}>
+          <Text style={styles.dragHandleIcon}>☰</Text>
+        </View>
+      ) : null}
       <View style={styles.missionIconSlot}>
         <Text style={styles.missionIcon}>{mission.icon}</Text>
       </View>
@@ -670,23 +686,24 @@ function findMissionPosition(columns: DayMissionColumns, missionId: string) {
 function moveMissionInColumns(
   columns: DayMissionColumns,
   missionId: string,
-  start: { column: DayColumnKey; index: number },
-  dx: number,
-  dy: number
+  horizontalStep: number,
+  verticalStep: number
 ) {
   const mission = columns.primary.concat(columns.secondary).find((item) => item.id === missionId);
+  const currentPosition = findMissionPosition(columns, missionId);
 
-  if (!mission) {
+  if (!mission || !currentPosition) {
     return columns;
   }
 
-  const targetColumn: DayColumnKey = dx > 72 ? "secondary" : dx < -72 ? "primary" : start.column;
+  const targetColumn: DayColumnKey = horizontalStep > 0 ? "secondary" : horizontalStep < 0 ? "primary" : currentPosition.column;
   const withoutMission: DayMissionColumns = {
     primary: columns.primary.filter((item) => item.id !== missionId),
     secondary: columns.secondary.filter((item) => item.id !== missionId)
   };
   const targetList = withoutMission[targetColumn];
-  const targetIndex = clamp(start.index + Math.round(dy / 122), 0, targetList.length);
+  const baseIndex = targetColumn === currentPosition.column ? currentPosition.index : Math.min(currentPosition.index, targetList.length);
+  const targetIndex = clamp(baseIndex + verticalStep, 0, targetList.length);
 
   return {
     ...withoutMission,
