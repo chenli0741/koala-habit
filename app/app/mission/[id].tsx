@@ -576,11 +576,7 @@ export default function MissionDetailScreen() {
               <Text style={styles.sectionLabel}>{t("attachments")}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attachmentTileRow}>
                 {mission.planDetail.attachments.map((attachment) => (
-                  <Pressable key={attachment.id} style={styles.attachmentTile} onPress={() => openAttachment(attachment)}>
-                    <Text style={styles.attachmentTileIcon}>{fileIcon(attachment.name, attachment.mimeType)}</Text>
-                    <Text numberOfLines={1} style={styles.attachmentName}>{attachment.name}</Text>
-                    <Text numberOfLines={1} style={styles.attachmentMeta}>{attachmentLabel(attachment.mimeType, attachment.size)}</Text>
-                  </Pressable>
+                  <AttachmentPreviewTile key={attachment.id} attachment={attachment} onOpen={openAttachment} t={t} />
                 ))}
               </ScrollView>
             </View>
@@ -854,6 +850,40 @@ function formatPoints(points: number) {
   return points > 0 ? `+${points}` : `${points}`;
 }
 
+function AttachmentPreviewTile({ attachment, onOpen, t }: { attachment: TaskAttachment; onOpen: (attachment: TaskAttachment) => Promise<void>; t: (key: string) => string }) {
+  if (isImageAttachment(attachment)) {
+    return (
+      <Pressable style={styles.imageAttachmentTile} onPress={() => onOpen(attachment)}>
+        <Image source={{ uri: attachment.uri }} style={styles.imageAttachmentPreview} />
+        <View style={styles.mediaAttachmentOverlay}>
+          <Text style={styles.mediaAttachmentTitle}>{t("photoReady")}</Text>
+          <Text style={styles.mediaAttachmentMeta}>{attachmentLabel(attachment.mimeType, attachment.size)}</Text>
+        </View>
+      </Pressable>
+    );
+  }
+
+  if (isAudioAttachment(attachment)) {
+    return (
+      <Pressable style={styles.audioAttachmentTile} onPress={() => onOpen(attachment)}>
+        <Text style={styles.audioAttachmentIcon}>🎤</Text>
+        <View style={styles.audioAttachmentCopy}>
+          <Text style={styles.mediaAttachmentTitle}>{t("audioReady")}</Text>
+          <Text style={styles.mediaAttachmentMeta}>{t("openAudio")} · {attachmentLabel(attachment.mimeType, attachment.size)}</Text>
+        </View>
+      </Pressable>
+    );
+  }
+
+  return (
+    <Pressable style={styles.attachmentTile} onPress={() => onOpen(attachment)}>
+      <Text style={styles.attachmentTileIcon}>{fileIcon(attachment.name, attachment.mimeType)}</Text>
+      <Text numberOfLines={1} style={styles.attachmentName}>{attachment.name}</Text>
+      <Text numberOfLines={1} style={styles.attachmentMeta}>{attachmentLabel(attachment.mimeType, attachment.size)}</Text>
+    </Pressable>
+  );
+}
+
 function attachmentLabel(mimeType?: string, size?: number) {
   const typeLabel = mimeType?.split("/").pop()?.toUpperCase() ?? "FILE";
 
@@ -952,6 +982,14 @@ function latestProofAttachmentUri(mission: Mission | undefined, mediaType: "audi
     .reverse()
     .find((attachment) => attachment.mimeType?.startsWith(`${mediaType}/`) || attachment.name.toLowerCase().includes(`proof-${mediaType === "image" ? "photo" : "audio"}`))
     ?.uri;
+}
+
+function isImageAttachment(attachment: TaskAttachment) {
+  return attachment.mimeType?.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp)$/i.test(attachment.name) || /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(attachment.uri);
+}
+
+function isAudioAttachment(attachment: TaskAttachment) {
+  return attachment.mimeType?.startsWith("audio/") || /\.(m4a|mp3|wav|aac|caf|mp4)$/i.test(attachment.name) || /\.(m4a|mp3|wav|aac|caf|mp4)(\?|$)/i.test(attachment.uri);
 }
 
 function isRemoteUri(uri: string) {
@@ -1821,6 +1859,64 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 12
+  },
+  imageAttachmentTile: {
+    width: 238,
+    height: 168,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#EFE8DD",
+    overflow: "hidden"
+  },
+  imageAttachmentPreview: {
+    width: "100%",
+    height: "100%"
+  },
+  mediaAttachmentOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(35, 55, 44, 0.82)",
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  mediaAttachmentTitle: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  mediaAttachmentMeta: {
+    color: "#EAF1E8",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 2
+  },
+  audioAttachmentTile: {
+    width: 238,
+    minHeight: 96,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FAF7F0",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14
+  },
+  audioAttachmentIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: "#EEF3EA",
+    color: palette.green,
+    fontSize: 24,
+    lineHeight: 52,
+    textAlign: "center"
+  },
+  audioAttachmentCopy: {
+    flex: 1
   },
   attachmentTileIcon: {
     width: 76,
