@@ -152,11 +152,40 @@ export default function MissionDetailScreen() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
 
     if (!permission.granted) {
-      Alert.alert(t("cameraPermissionTitle"), t("cameraPermissionBody"));
+      Alert.alert(t("cameraPermissionTitle"), t("cameraPermissionBody"), [
+        { text: t("cancel"), style: "cancel" },
+        { text: t("chooseFromLibrary"), onPress: () => void pickProofPhoto() }
+      ]);
       return;
     }
 
-    const result = await ImagePicker.launchCameraAsync({
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        mediaTypes: ["images"],
+        quality: 0.8
+      });
+
+      if (!result.canceled) {
+        setPhotoUri(result.assets[0].uri);
+        setSubmitMessage(t("photoSaved"));
+      }
+    } catch (error) {
+      console.warn("[Mission] camera unavailable", readableError(error));
+      await pickProofPhoto();
+    }
+  }
+
+  async function pickProofPhoto() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert(t("photoLibraryPermissionTitle"), t("photoLibraryPermissionBody"));
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
       aspect: [4, 3],
       mediaTypes: ["images"],
