@@ -94,9 +94,11 @@ type DemoMission = MissionInput & {
   layoutOrder?: number;
   completionRecord?: {
     actualMinutes?: number;
+    audioUri?: string;
     completedAt: string;
     endedAt?: string;
     parentConfirmed: boolean;
+    photoUri?: string;
     startedAt?: string;
   };
   eventRecords?: Array<{ content: string; eventType: string; id: string; metadata?: Record<string, unknown>; recordedAt: string; title: string }>;
@@ -1195,9 +1197,11 @@ app.post("/families/demo/missions/:id/complete", async (c) => {
   mission.actualEndAt = payload.endedAt ?? new Date().toISOString();
   mission.completionRecord = {
     actualMinutes: payload.actualMinutes,
+    audioUri: payload.audioUri,
     completedAt: mission.actualEndAt,
     endedAt: mission.actualEndAt,
     parentConfirmed: true,
+    photoUri: payload.photoUri,
     startedAt: payload.startedAt
   };
   mission.rewardRecords = mission.rewardRecords?.length

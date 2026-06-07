@@ -263,14 +263,20 @@ export default function MissionDetailScreen() {
       return;
     }
 
-    await completeMission(missionId, {
-      actualMinutes,
-      audioUri: uploadedAudioUri,
-      endedAt,
-      photoUri: uploadedPhotoUri,
-      startedAt
-    });
-    setSubmitMessage(photoUri || audioUri ? t("proofAttached") : t("complete"));
+    try {
+      await completeMission(missionId, {
+        actualMinutes,
+        audioUri: uploadedAudioUri,
+        endedAt,
+        photoUri: uploadedPhotoUri,
+        startedAt
+      });
+      setSubmitMessage(photoUri || audioUri ? t("proofAttached") : t("complete"));
+    } catch (error) {
+      console.warn("[Mission] completion save failed", readableError(error));
+      Alert.alert(t("attachments"), t("proofSaveFailed"));
+      setSubmitMessage(t("proofSaveFailed"));
+    }
   }
 
   async function startTimer() {

@@ -662,9 +662,23 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
 
         try {
           const storedMission = await completeMissionApi(missionId, evidence);
-          setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
-        } catch {
+          const storedMissionWithProof = evidence
+            ? {
+                ...storedMission,
+                completionRecord: storedMission.completionRecord
+                  ? {
+                      ...storedMission.completionRecord,
+                      audioUri: storedMission.completionRecord.audioUri ?? evidence.audioUri,
+                      photoUri: storedMission.completionRecord.photoUri ?? evidence.photoUri
+                    }
+                  : storedMission.completionRecord
+              }
+            : storedMission;
+          setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMissionWithProof : mission)));
+        } catch (error) {
+          console.warn("[KoalaStore] complete mission failed", error);
           setMissionItems((current) => current);
+          throw error;
         }
       },
       getMission: (id) => {
