@@ -381,10 +381,12 @@ app.post("/uploads", async (c) => {
   const safeMissionId = safePathSegment(missionId);
   const safeName = safePathSegment(file.name || `${kind}-${Date.now()}`);
   const pathname = `uploads/${kind}/${safeMissionId}/${Date.now()}-${safeName}`;
+  const blobReadWriteToken = process.env.Habit_READ_WRITE_TOKEN ?? process.env.BLOB_READ_WRITE_TOKEN;
   const blob = await put(pathname, file, {
     access: "public",
     addRandomSuffix: true,
-    contentType: file.type || undefined
+    contentType: file.type || undefined,
+    ...(blobReadWriteToken ? { token: blobReadWriteToken } : {})
   });
 
   return c.json({
