@@ -1,6 +1,6 @@
 import { Link, router } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Mission, MissionCategory, MissionExecutionType } from "../data/demo";
 import { profileForChild, useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
@@ -222,6 +222,64 @@ export default function ParentScreen() {
             </View>
           ))}
         </View>
+
+        <View style={StyleSheet.flatten([shared.card, styles.recordsCard])}>
+          <Text style={styles.cardTitle}>{t("childSubmissionRecords")}</Text>
+          {missions.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyTitle}>{t("noTasksYet")}</Text>
+              <Text style={styles.emptyText}>{t("askParentAddTask")}</Text>
+            </View>
+          ) : missions.map((mission) => (
+            <View key={`record-${mission.id}`} style={styles.recordRow}>
+              <View style={styles.recordHeader}>
+                <Text style={styles.missionIcon}>{mission.icon}</Text>
+                <View style={styles.reviewCopy}>
+                  <Text style={styles.reviewTitle}>{mission.title}</Text>
+                  <Text style={styles.reviewMeta}>{missionRecordMetaText(mission, t)}</Text>
+                </View>
+                <Text style={StyleSheet.flatten([styles.statusPill, mission.status === "done" && styles.statusPillDone])}>
+                  {missionStatusText(mission.status, t)}
+                </Text>
+              </View>
+              {mission.completionRecord?.photoUri || mission.completionRecord?.audioUri ? (
+                <View style={styles.proofPanel}>
+                  {mission.completionRecord.photoUri ? (
+                    <Pressable onPress={() => void Linking.openURL(mission.completionRecord?.photoUri ?? "")}>
+                      <Image source={{ uri: mission.completionRecord.photoUri }} style={styles.proofImage} />
+                    </Pressable>
+                  ) : null}
+                  <View style={styles.proofCopy}>
+                    <Text style={styles.proofTitle}>{t("proofAttached")}</Text>
+                    <Text style={styles.proofMeta}>
+                      {mission.completionRecord.photoUri ? t("photoReady") : t("noPhoto")} · {mission.completionRecord.audioUri ? t("audioReady") : t("noAudio")}
+                    </Text>
+                    {mission.completionRecord.audioUri ? (
+                      <Pressable style={styles.linkButton} onPress={() => void Linking.openURL(mission.completionRecord?.audioUri ?? "")}>
+                        <Text style={styles.linkButtonText}>{t("openAudio")}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
+              {mission.eventRecords.length > 0 || mission.activeRun ? (
+                <View style={styles.logPanel}>
+                  <Text style={styles.logTitle}>{t("executionLog")}</Text>
+                  {mission.activeRun ? (
+                    <Text style={styles.logItem}>
+                      {t("inProgress")} · {mission.activeRun.targetApp ?? mission.target} · {formatClock(mission.activeRun.startAt)}
+                    </Text>
+                  ) : null}
+                  {mission.eventRecords.slice(-5).map((event) => (
+                    <Text key={event.id} style={styles.logItem}>
+                      {event.title || taskEventText(event.eventType, t)} · {formatClock(event.recordedAt)}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          ))}
+        </View>
       </ScrollView>
     </View>
   );
@@ -249,6 +307,10 @@ const styles = StyleSheet.create({
   },
   reviewCard: {
     flexBasis: 520,
+    flexGrow: 1
+  },
+  recordsCard: {
+    flexBasis: "100%",
     flexGrow: 1
   },
   createCard: {
@@ -350,6 +412,96 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 14,
     marginTop: 4
+  },
+  recordRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#EFE8DD",
+    paddingVertical: 14
+  },
+  recordHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14
+  },
+  statusPill: {
+    borderRadius: 8,
+    backgroundColor: "#F4EFE5",
+    color: palette.muted,
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: "900",
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  statusPillDone: {
+    backgroundColor: "#E5F1E8",
+    color: palette.green
+  },
+  proofPanel: {
+    flexDirection: "row",
+    gap: 12,
+    borderRadius: 8,
+    backgroundColor: "#FAF7F0",
+    borderWidth: 1,
+    borderColor: palette.line,
+    marginLeft: 56,
+    marginTop: 12,
+    padding: 10
+  },
+  proofImage: {
+    width: 96,
+    height: 72,
+    borderRadius: 8,
+    backgroundColor: "#EFE8DD"
+  },
+  proofCopy: {
+    flex: 1,
+    justifyContent: "center"
+  },
+  proofTitle: {
+    color: palette.ink,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  proofMeta: {
+    color: palette.muted,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 4
+  },
+  linkButton: {
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    backgroundColor: "#EEF3EA",
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  linkButtonText: {
+    color: palette.green,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  logPanel: {
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: palette.line,
+    marginLeft: 56,
+    marginTop: 10,
+    padding: 10
+  },
+  logTitle: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: "900",
+    marginBottom: 4
+  },
+  logItem: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18
   },
   confirmButton: {
     minHeight: 42,
@@ -544,4 +696,59 @@ function missionMetaText(mission: Mission, t: (key: string) => string) {
   }
 
   return `${mission.target} · ${missionStatusText(mission.status, t)}`;
+}
+
+function missionRecordMetaText(mission: Mission, t: (key: string) => string) {
+  const parts = [mission.occurrenceDate, mission.scheduledTime, mission.target, missionStatusText(mission.status, t)].filter(Boolean);
+
+  if (mission.completionRecord?.completedAt) {
+    parts.push(`${t("completedAt")} ${formatClock(mission.completionRecord.completedAt)}`);
+  }
+
+  if (mission.completionRecord?.actualMinutes !== undefined) {
+    parts.push(`${mission.completionRecord.actualMinutes} min`);
+  }
+
+  return parts.join(" · ");
+}
+
+function formatClock(value?: string) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function taskEventText(eventType: string, t: (key: string) => string) {
+  switch (eventType) {
+    case "timer_start":
+      return t("timerStarted");
+    case "timer_pause":
+      return t("timerPaused");
+    case "timer_resume":
+      return t("timerResumed");
+    case "timer_end":
+      return t("timerEnded");
+    case "completion":
+      return t("complete");
+    case "attachment_added":
+      return t("attachmentAdded");
+    case "cancelled":
+      return "Cancelled";
+    case "created":
+      return "Created";
+    case "updated":
+      return "Updated";
+    case "status_change":
+      return "Status changed";
+    default:
+      return eventType;
+  }
 }
