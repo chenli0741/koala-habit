@@ -134,7 +134,6 @@ export type TaskTemplateInput = {
 };
 
 const connectionString = normalizeConnectionString(process.env.DATABASE_URL);
-const workDailyRepeatRule = "FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR";
 
 export const dbEnabled = Boolean(connectionString);
 
@@ -2938,206 +2937,21 @@ async function seedDefaultData() {
 
   await pool!.query(
     `
-      insert into families (id, name)
-      values ('family-demo', 'Koala Family')
+      insert into families (id, name, time_zone, language)
+      values ('family-demo', 'Chen Family', 'America/Los_Angeles', '中文')
       on conflict (id) do nothing;
 
       insert into parents (id, family_id, name, email, provider, password_hash)
-      values ('parent-demo', 'family-demo', 'Chen', 'parent@example.com', 'apple', '${hashPassword("secret123")}')
+      values ('parent-chenli0741-gmail-com', 'family-demo', 'Chen Li', 'chenli0741@gmail.com', 'password', '${hashPassword("123456")}')
       on conflict (email) do update
       set password_hash = coalesce(parents.password_hash, excluded.password_hash);
 
       insert into children (id, family_id, name, age, grade, pin, companion_name, companion_level, companion_growth)
-      values ('caitlyn', 'family-demo', 'Caitlyn', 9, 3, '1234', 'Koko', 3, 72)
+      values ('caitlyn', 'family-demo', 'Caitlyn', 9, 3, '1234', 'Koko', 1, 0)
       on conflict (id) do nothing;
     `
   );
 
-  const defaultMissions = demoMissionInputs();
-
-  for (const mission of defaultMissions) {
-    const missionId = slugify(mission.title);
-    const templateId = `template-${missionId}`;
-    const occurrenceId = `${templateId}-${new Date().toISOString().slice(0, 10)}`;
-
-    await pool!.query(
-      `
-        insert into missions (
-          id, child_id, icon, title, category, target, detail, goals,
-          reward_minutes, energy, progress, total, status, tone
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14)
-        on conflict (id) do nothing
-      `,
-      [
-        missionId,
-        mission.childId,
-        mission.icon,
-        mission.title,
-        mission.category,
-        mission.target,
-        mission.detail,
-        JSON.stringify(mission.goals),
-        mission.rewardMinutes,
-        mission.energy,
-        mission.progress,
-        mission.total,
-        mission.status,
-        mission.tone
-      ]
-    );
-
-    await pool!.query(
-      `
-        insert into task_templates (
-          id, child_id, icon, title, category, default_target, default_goals,
-          default_reward_minutes, default_energy, default_total, tone, rrule, default_scheduled_time, default_time_limit_minutes, default_target_app
-        )
-        values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)
-        on conflict (id) do update
-        set icon = excluded.icon,
-            title = excluded.title,
-            category = excluded.category,
-            default_target = excluded.default_target,
-            default_goals = excluded.default_goals,
-            default_reward_minutes = excluded.default_reward_minutes,
-            default_energy = excluded.default_energy,
-            default_total = excluded.default_total,
-            tone = excluded.tone,
-            rrule = excluded.rrule,
-            default_scheduled_time = excluded.default_scheduled_time,
-            default_time_limit_minutes = excluded.default_time_limit_minutes,
-            default_target_app = excluded.default_target_app,
-            active = true,
-            updated_at = now()
-      `,
-      [
-        templateId,
-        mission.childId,
-        mission.icon,
-        mission.title,
-        mission.category,
-        mission.target,
-        JSON.stringify(mission.goals),
-        mission.rewardMinutes,
-        mission.energy,
-        mission.total,
-        mission.tone,
-        mission.repeatRule ?? "FREQ=DAILY",
-        mission.scheduledTime ?? null,
-        mission.timeLimitMinutes ?? null,
-        mission.targetApp ?? null
-      ]
-    );
-
-    if (repeatRuleOccursOnDate(mission.repeatRule ?? "FREQ=DAILY", new Date().toISOString().slice(0, 10), new Date().toISOString().slice(0, 10))) {
-      await pool!.query(
-        `
-          insert into task_occurrences (
-            id, template_id, child_id, occurrence_date, title, target, scheduled_time, time_limit_minutes, target_app, progress, total, status
-          )
-          values ($1, $2, $3, current_date, $4, $5, $6, $7, $8, $9, $10, $11)
-          on conflict (template_id, occurrence_date) do update
-          set title = excluded.title,
-              target = excluded.target,
-              scheduled_time = excluded.scheduled_time,
-              time_limit_minutes = excluded.time_limit_minutes,
-              target_app = excluded.target_app,
-              updated_at = now()
-        `,
-        [
-          occurrenceId,
-          templateId,
-          mission.childId,
-          mission.title,
-          mission.target,
-          mission.scheduledTime ?? null,
-          mission.timeLimitMinutes ?? null,
-          mission.targetApp ?? null,
-          mission.progress,
-          mission.total,
-          toOccurrenceStatus(mission.status)
-        ]
-      );
-
-      await pool!.query(
-        `
-          insert into task_plan_details (id, occurrence_id, summary, goals, notes)
-          values ($1, $2, $3, $4::jsonb, $5)
-          on conflict (occurrence_id) do nothing
-        `,
-        [`plan-${occurrenceId}`, occurrenceId, mission.detail, JSON.stringify(mission.goals), mission.detail]
-      );
-    }
-  }
-}
-
-function missionOccursToday(repeatRule: string) {
-  if (repeatRule === "FREQ=NONE") {
-    return false;
-  }
-
-  const byday = repeatRule.match(/BYDAY=([^;]+)/)?.[1];
-
-  if (!byday) {
-    return repeatRule.startsWith("FREQ=DAILY");
-  }
-
-  const dayCodes = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
-  return byday.split(",").includes(dayCodes[new Date().getDay()]);
-}
-
-function demoMissionInputs(): MissionInput[] {
-  const base = {
-    childId: "caitlyn",
-    progress: 0,
-    status: "todo" as const,
-    total: 1
-  };
-
-  return [
-    task(base, "➕", "新加坡数学3", "Math", "完成当天数学练习", "完成新加坡数学3当天内容，订正错题。", ["完成练习", "检查答案", "订正错题"], workDailyRepeatRule, "16:00", 10, "#4B6FA8"),
-    task(base, "🀄", "中文认读和字帖", "Chinese", "认读一篇文章，抄写字帖一篇", "每天认读一篇中文文章，并完成一篇字帖抄写。", ["朗读文章", "完成字帖", "圈出新词"], workDailyRepeatRule, "17:00", 10, "#B75F4A"),
-    task(base, "📘", "读哈利波特和读后感", "Eng", "读哈利波特，写一篇读后感", "阅读哈利波特当天内容，并写一篇读后感。", ["阅读当天内容", "写读后感", "检查拼写和表达"], workDailyRepeatRule, "19:00", 10, "#3F7D58"),
-    task(base, "🎹", "弹钢琴和小叶子辅导", "Other", "练琴30分钟", "周二、周四各练琴30分钟，并完成小叶子辅导。", ["热身", "练习曲目", "完成小叶子辅导"], "FREQ=WEEKLY;BYDAY=TU,TH", "18:00", 12, "#8B5E83", 15),
-    task(base, "💪", "日常体能训练", "Sports", "体能训练1分钟", "完成1分钟日常体能训练。", ["核心训练", "力量训练", "拉伸"], workDailyRepeatRule, "18:45", 10, "#7A6A3A", 10, 1, "Maps"),
-    task(base, "🏊", "游泳", "Sports", "游泳60分钟", "周二、周四游泳60分钟。", ["热身", "游泳60分钟", "洗澡整理"], "FREQ=WEEKLY;BYDAY=TU,TH", "10:00", 12, "#2C7DA0", 20),
-    task(base, "📺", "电视时间", "Game", "电视1分钟", "每天电视1分钟。", ["控制时间", "按时结束"], "FREQ=DAILY", "20:00", -5, "#6B5B95", -5, 1, "Maps;Youtobe")
-  ];
-}
-
-function task(
-  base: Pick<MissionInput, "childId" | "progress" | "status" | "total">,
-  icon: string,
-  title: string,
-  category: string,
-  target: string,
-  detail: string,
-  goals: string[],
-  repeatRule: string,
-  scheduledTime: string,
-  energy: number,
-  tone: string,
-  rewardMinutes = 10,
-  timeLimitMinutes?: number,
-  targetApp?: string
-): MissionInput {
-  return {
-    ...base,
-    category,
-    detail,
-    energy,
-    goals,
-    icon,
-    repeatRule,
-    rewardMinutes,
-    scheduledTime,
-    target,
-    targetApp,
-    timeLimitMinutes,
-    title,
-    tone
-  };
 }
 
 function slugify(value: string) {
