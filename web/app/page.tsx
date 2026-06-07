@@ -597,17 +597,21 @@ export default function Page() {
   }
 
   async function loadChildData(childId: string) {
-    const visibleRange = calendarRange(calendarAnchorDate, calendarView);
-    const startDate = filters.dateFrom && filters.dateFrom < visibleRange.startDate ? filters.dateFrom : visibleRange.startDate;
-    const endDate = filters.dateTo && filters.dateTo > visibleRange.endDate ? filters.dateTo : visibleRange.endDate;
-    const missionData = await request<{ missions: Mission[] }>(
-      `/families/demo/missions?childId=${childId}&startDate=${startDate}&endDate=${endDate}`
-    );
-    const templateData = await request<{ templates: TaskTemplate[] }>(`/families/demo/templates?childId=${childId}`);
-    setMissions(missionData.missions);
-    setTemplates(templateData.templates);
-    setSelectedMissionId((current) => current ?? missionData.missions[0]?.id ?? null);
-    setSelectedTemplateId((current) => current ?? templateData.templates[0]?.id ?? null);
+    try {
+      const visibleRange = calendarRange(calendarAnchorDate, calendarView);
+      const startDate = filters.dateFrom && filters.dateFrom < visibleRange.startDate ? filters.dateFrom : visibleRange.startDate;
+      const endDate = filters.dateTo && filters.dateTo > visibleRange.endDate ? filters.dateTo : visibleRange.endDate;
+      const missionData = await request<{ missions: Mission[] }>(
+        `/families/demo/missions?childId=${childId}&startDate=${startDate}&endDate=${endDate}`
+      );
+      const templateData = await request<{ templates: TaskTemplate[] }>(`/families/demo/templates?childId=${childId}`);
+      setMissions(missionData.missions);
+      setTemplates(templateData.templates);
+      setSelectedMissionId((current) => current ?? missionData.missions[0]?.id ?? null);
+      setSelectedTemplateId((current) => current ?? templateData.templates[0]?.id ?? null);
+    } catch (error) {
+      setMessage(readableRequestError(error, t));
+    }
   }
 
   async function submitAuth(event: FormEvent) {
@@ -1230,6 +1234,7 @@ export default function Page() {
                 }}
                 onChange={setTaskForm}
                 onKindChange={changeTaskKind}
+                onError={(error) => setMessage(readableRequestError(error, t))}
                 onResetTimedTask={editingMissionId ? () => resetTimedTask(editingMissionId) : undefined}
                 onSubmit={submitTask}
                 t={t}
@@ -1356,7 +1361,7 @@ export default function Page() {
               </div>
               <label className="secondary fileButton">
                 {language === "zh" ? "上传头像" : "Upload avatar"}
-                <input accept="image/*" type="file" onChange={(event) => void readChildAvatarFile(event.currentTarget.files?.[0], (avatarUri) => setChildForm((current) => ({ ...current, avatarUri })))} />
+                <input accept="image/*" type="file" onChange={(event) => void readChildAvatarFile(event.currentTarget.files?.[0], (avatarUri) => setChildForm((current) => ({ ...current, avatarUri })), (error) => setMessage(readableRequestError(error, t)))} />
               </label>
             </div>
             <label>{t("childName")}<input value={childForm.name} onChange={(event) => setChildForm({ ...childForm, name: event.target.value })} /></label>
@@ -1604,6 +1609,7 @@ function TaskFormView({
   form,
   onCancel,
   onChange,
+  onError,
   onKindChange,
   onResetTimedTask,
   onSubmit,
@@ -1614,6 +1620,7 @@ function TaskFormView({
   form: TaskForm;
   onCancel: () => void;
   onChange: (form: TaskForm) => void;
+  onError: (error: unknown) => void;
   onKindChange: (kind: TaskKind) => void;
   onResetTimedTask?: () => void;
   onSubmit: (event: FormEvent) => void;
@@ -1679,7 +1686,7 @@ function TaskFormView({
         {isFlexible ? (
           <label className="wide fileInput">
             {t("uploadFile")}
-            <input multiple type="file" onChange={(event) => void attachFiles(event.currentTarget.files, form, onChange)} />
+            <input multiple type="file" onChange={(event) => void attachFiles(event.currentTarget.files, form, onChange, onError)} />
           </label>
         ) : null}
       </div>
@@ -2697,30 +2704,38 @@ function templateToForm(template: TaskTemplate): TemplateForm {
   };
 }
 
-async function attachFiles(files: FileList | null, form: TaskForm, onChange: (form: TaskForm) => void) {
+async function attachFiles(files: FileList | null, form: TaskForm, onChange: (form: TaskForm) => void, onError: (error: unknown) => void) {
   if (!files?.length) {
     return;
   }
 
-  const attachments = await Promise.all(
-    Array.from(files).map(async (file) => ({
-      id: `attachment-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]+/g, "-")}`,
-      mimeType: file.type || undefined,
-      name: file.name,
-      size: file.size,
-      uri: await uploadFile(file, "attachment", form.title || "task")
-    }))
-  );
+  try {
+    const attachments = await Promise.all(
+      Array.from(files).map(async (file) => ({
+        id: `attachment-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]+/g, "-")}`,
+        mimeType: file.type || undefined,
+        name: file.name,
+        size: file.size,
+        uri: await uploadFile(file, "attachment", form.title || "task")
+      }))
+    );
 
-  onChange({ ...form, attachments: [...form.attachments, ...attachments] });
+    onChange({ ...form, attachments: [...form.attachments, ...attachments] });
+  } catch (error) {
+    onError(error);
+  }
 }
 
-async function readChildAvatarFile(file: File | undefined, onChange: (avatarUri: string) => void) {
+async function readChildAvatarFile(file: File | undefined, onChange: (avatarUri: string) => void, onError: (error: unknown) => void) {
   if (!file) {
     return;
   }
 
-  onChange(await uploadFile(file, "avatar", "child"));
+  try {
+    onChange(await uploadFile(file, "avatar", "child"));
+  } catch (error) {
+    onError(error);
+  }
 }
 
 async function uploadFile(file: File, kind: "attachment" | "avatar", missionId: string) {
@@ -2735,7 +2750,16 @@ async function uploadFile(file: File, kind: "attachment" | "avatar", missionId: 
   });
 
   if (!response.ok) {
-    throw new Error(`File upload failed: ${response.status}`);
+    let message = `File upload failed: ${response.status}`;
+
+    try {
+      const data = (await response.json()) as { error?: string };
+      message = data.error ?? message;
+    } catch {
+      // Keep the generic HTTP error when the response is not JSON.
+    }
+
+    throw new Error(message);
   }
 
   const data = (await response.json()) as { url: string };

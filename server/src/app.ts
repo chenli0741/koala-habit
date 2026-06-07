@@ -369,6 +369,10 @@ const resumeTaskRunSchema = z.object({
 app.get("/health", (c) => c.json({ ok: true, db: dbEnabled, service: "koala-habit-server" }));
 
 app.post("/uploads", async (c) => {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return c.json({ error: "File upload is not configured. Set BLOB_READ_WRITE_TOKEN on the API service." }, 503);
+  }
+
   const formData = await c.req.formData();
   const file = formData.get("file");
   const kind = uploadKindSchema.parse(formData.get("kind") ?? "attachment");
@@ -381,11 +385,19 @@ app.post("/uploads", async (c) => {
   const safeMissionId = safePathSegment(missionId);
   const safeName = safePathSegment(file.name || `${kind}-${Date.now()}`);
   const pathname = `uploads/${kind}/${safeMissionId}/${Date.now()}-${safeName}`;
-  const blob = await put(pathname, file, {
-    access: "public",
-    addRandomSuffix: true,
-    contentType: file.type || undefined
-  });
+
+  let blob: Awaited<ReturnType<typeof put>>;
+
+  try {
+    blob = await put(pathname, file, {
+      access: "public",
+      addRandomSuffix: true,
+      contentType: file.type || undefined
+    });
+  } catch (error) {
+    console.warn("Upload failed.", error);
+    return c.json({ error: "File upload service is unavailable. Check BLOB_READ_WRITE_TOKEN and Blob storage access." }, 503);
+  }
 
   return c.json({
     contentType: blob.contentType,

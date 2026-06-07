@@ -21,3 +21,5 @@ services:
         fromDatabase:
           name: koala-habit-preview-db
           property: connectionString
+      - key: BLOB_READ_WRITE_TOKEN
+        sync: false
