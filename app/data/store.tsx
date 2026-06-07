@@ -617,9 +617,11 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
               actualEndAt: evidence?.endedAt ?? new Date().toISOString(),
               completionRecord: {
                 actualMinutes: evidence?.actualMinutes ?? currentMission.completionRecord?.actualMinutes,
+                audioUri: evidence?.audioUri ?? currentMission.completionRecord?.audioUri,
                 completedAt: evidence?.endedAt ?? new Date().toISOString(),
                 endedAt: evidence?.endedAt ?? new Date().toISOString(),
                 parentConfirmed: true,
+                photoUri: evidence?.photoUri ?? currentMission.completionRecord?.photoUri,
                 startedAt: evidence?.startedAt ?? currentMission.completionRecord?.startedAt
               },
               progress: currentMission.total,

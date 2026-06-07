@@ -41,6 +41,8 @@ export default function MissionDetailScreen() {
   const isSubmissionTask = executionType === "submission";
   const regularTimerState = mission && !isTimedTask && !isScheduleTask ? regularTimerStateForMission(mission) : "idle";
   const regularElapsedSeconds = mission && !isTimedTask && !isScheduleTask ? elapsedSecondsForRegularTimer(mission, nowMs) : 0;
+  const proofPhotoUri = photoUri ?? mission?.completionRecord?.photoUri;
+  const proofAudioUri = audioUri ?? mission?.completionRecord?.audioUri;
   const timerMinutes = useMemo(() => mission?.timeLimitMinutes ?? 10, [mission?.timeLimitMinutes]);
   const timeLimitSeconds = timerMinutes * 60;
   const targetAppOptions = useMemo(() => targetAppOptionsForMission(mission?.targetApp), [mission?.targetApp]);
@@ -647,13 +649,13 @@ export default function MissionDetailScreen() {
                 </View>
               </>
             ) : null}
-            {(!isTimedTask && !isScheduleTask && (photoUri || audioUri || submitMessage)) ? (
+            {(!isTimedTask && !isScheduleTask && (proofPhotoUri || proofAudioUri || submitMessage)) ? (
               <View style={styles.proofPanel}>
-                {photoUri ? <Image source={{ uri: photoUri }} style={styles.photoPreview} /> : null}
+                {proofPhotoUri ? <Image source={{ uri: proofPhotoUri }} style={styles.photoPreview} /> : null}
                 <View style={styles.proofCopy}>
                   <Text style={styles.proofTitle}>{t("proofAttached")}</Text>
                   <Text style={styles.proofText}>
-                    {photoUri ? t("photoReady") : t("noPhoto")} · {audioUri ? t("audioReady") : recorderState.isRecording ? t("recording") : t("noAudio")}
+                    {proofPhotoUri ? t("photoReady") : t("noPhoto")} · {proofAudioUri ? t("audioReady") : recorderState.isRecording ? t("recording") : t("noAudio")}
                   </Text>
                   {submitMessage ? <Text style={styles.proofMeta}>{submitMessage}</Text> : null}
                 </View>

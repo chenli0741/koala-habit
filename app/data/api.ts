@@ -34,9 +34,11 @@ type ServerMission = {
   completionRecord?: {
     actualMinutes?: number;
     aiScore?: number;
+    audioUri?: string;
     completedAt?: string;
     endedAt?: string;
     parentConfirmed?: boolean;
+    photoUri?: string;
     startedAt?: string;
   };
   actualEndAt?: string;

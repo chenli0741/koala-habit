@@ -32,9 +32,11 @@ export type RewardRecord = {
 export type CompletionRecord = {
   aiScore?: number;
   actualMinutes?: number;
+  audioUri?: string;
   completedAt?: string;
   endedAt?: string;
   parentConfirmed?: boolean;
+  photoUri?: string;
   startedAt?: string;
 };
 

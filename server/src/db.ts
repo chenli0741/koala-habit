@@ -676,6 +676,8 @@ export async function getToday(childId: string) {
         completion.actual_minutes,
         completion.parent_confirmed,
         completion.ai_score,
+        completion.photo_uri,
+        completion.audio_uri,
         active_run.record as active_run,
         coalesce(rewards.records, '[]'::jsonb) as reward_records,
         coalesce(task_events.records, '[]'::jsonb) as event_records
@@ -684,7 +686,7 @@ export async function getToday(childId: string) {
       left join task_occurrence_layouts layout on layout.mission_id = occurrence.id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
       left join lateral (
-        select completed_at, actual_minutes, parent_confirmed, ai_score
+        select completed_at, actual_minutes, parent_confirmed, ai_score, photo_uri, audio_uri
         from completion_records
         where occurrence_id = occurrence.id
         order by completed_at desc
@@ -816,6 +818,8 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
         completion.actual_minutes,
         completion.parent_confirmed,
         completion.ai_score,
+        completion.photo_uri,
+        completion.audio_uri,
         active_run.record as active_run,
         coalesce(rewards.records, '[]'::jsonb) as reward_records,
         coalesce(task_events.records, '[]'::jsonb) as event_records
@@ -824,7 +828,7 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
       left join task_occurrence_layouts layout on layout.mission_id = occurrence.id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
       left join lateral (
-        select completed_at, actual_minutes, parent_confirmed, ai_score
+        select completed_at, actual_minutes, parent_confirmed, ai_score, photo_uri, audio_uri
         from completion_records
         where occurrence_id = occurrence.id
         order by completed_at desc
@@ -2252,6 +2256,8 @@ async function getMissionOccurrence(occurrenceId: string) {
         completion.actual_minutes,
         completion.parent_confirmed,
         completion.ai_score,
+        completion.photo_uri,
+        completion.audio_uri,
         active_run.record as active_run,
         coalesce(rewards.records, '[]'::jsonb) as reward_records,
         coalesce(task_events.records, '[]'::jsonb) as event_records
@@ -2259,7 +2265,7 @@ async function getMissionOccurrence(occurrenceId: string) {
       join task_templates template on template.id = occurrence.template_id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
       left join lateral (
-        select completed_at, actual_minutes, parent_confirmed, ai_score
+        select completed_at, actual_minutes, parent_confirmed, ai_score, photo_uri, audio_uri
         from completion_records
         where occurrence_id = occurrence.id
         order by completed_at desc
@@ -2658,9 +2664,11 @@ function mapMission(row: Record<string, unknown>) {
       ? {
           actualMinutes: row.actual_minutes === null ? undefined : Number(row.actual_minutes),
           aiScore: row.ai_score === null ? undefined : Number(row.ai_score),
+          audioUri: row.audio_uri === null || row.audio_uri === undefined ? undefined : String(row.audio_uri),
           completedAt: String(row.completed_at),
           endedAt: row.actual_end_at === null || row.actual_end_at === undefined ? String(row.completed_at) : String(row.actual_end_at),
           parentConfirmed: Boolean(row.parent_confirmed),
+          photoUri: row.photo_uri === null || row.photo_uri === undefined ? undefined : String(row.photo_uri),
           startedAt: row.actual_start_at === null || row.actual_start_at === undefined ? undefined : String(row.actual_start_at)
         }
       : undefined,
