@@ -1,6 +1,11 @@
-import "dotenv/config";
 import { createHash } from "node:crypto";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { config } from "dotenv";
 import { Pool } from "pg";
+
+config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../.env") });
+config();
 
 type ParentInput = {
   email: string;
