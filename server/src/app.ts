@@ -368,9 +368,13 @@ const resumeTaskRunSchema = z.object({
 
 app.get("/health", (c) => c.json({ ok: true, db: dbEnabled, service: "koala-habit-server" }));
 
+const getBlobReadWriteToken = () => process.env.Habit_READ_WRITE_TOKEN ?? process.env.BLOB_READ_WRITE_TOKEN;
+
 app.post("/uploads", async (c) => {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return c.json({ error: "File upload is not configured. Set BLOB_READ_WRITE_TOKEN on the API service." }, 503);
+  const blobReadWriteToken = getBlobReadWriteToken();
+
+  if (!blobReadWriteToken) {
+    return c.json({ error: "File upload is not configured. Set Habit_READ_WRITE_TOKEN or BLOB_READ_WRITE_TOKEN on the API service." }, 503);
   }
 
   const formData = await c.req.formData();
@@ -392,11 +396,12 @@ app.post("/uploads", async (c) => {
     blob = await put(pathname, file, {
       access: "public",
       addRandomSuffix: true,
-      contentType: file.type || undefined
+      contentType: file.type || undefined,
+      token: blobReadWriteToken
     });
   } catch (error) {
     console.warn("Upload failed.", error);
-    return c.json({ error: "File upload service is unavailable. Check BLOB_READ_WRITE_TOKEN and Blob storage access." }, 503);
+    return c.json({ error: "File upload service is unavailable. Check Habit_READ_WRITE_TOKEN or BLOB_READ_WRITE_TOKEN and Blob storage access." }, 503);
   }
 
   return c.json({
