@@ -21,7 +21,7 @@ const TIMER_NOTIFICATION_INTERRUPTION_LEVEL = "timeSensitive";
 
 export default function MissionDetailScreen() {
   const { id } = useLocalSearchParams();
-  const { cancelMission, completeMission, finishEntertainmentRun, getMission, pauseEntertainmentRun, recordMissionTimerEvent, resumeEntertainmentRun, startEntertainmentRun, t } = useKoalaStore();
+  const { addMissionAttachment, cancelMission, completeMission, finishEntertainmentRun, getMission, pauseEntertainmentRun, recordMissionTimerEvent, resumeEntertainmentRun, startEntertainmentRun, t } = useKoalaStore();
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder);
   const [photoUri, setPhotoUri] = useState<string | undefined>();
@@ -41,8 +41,8 @@ export default function MissionDetailScreen() {
   const isSubmissionTask = executionType === "submission";
   const regularTimerState = mission && !isTimedTask && !isScheduleTask ? regularTimerStateForMission(mission) : "idle";
   const regularElapsedSeconds = mission && !isTimedTask && !isScheduleTask ? elapsedSecondsForRegularTimer(mission, nowMs) : 0;
-  const proofPhotoUri = photoUri ?? mission?.completionRecord?.photoUri;
-  const proofAudioUri = audioUri ?? mission?.completionRecord?.audioUri;
+  const proofPhotoUri = photoUri ?? mission?.completionRecord?.photoUri ?? latestProofAttachmentUri(mission, "image");
+  const proofAudioUri = audioUri ?? mission?.completionRecord?.audioUri ?? latestProofAttachmentUri(mission, "audio");
   const timerMinutes = useMemo(() => mission?.timeLimitMinutes ?? 10, [mission?.timeLimitMinutes]);
   const timeLimitSeconds = timerMinutes * 60;
   const targetAppOptions = useMemo(() => targetAppOptionsForMission(mission?.targetApp), [mission?.targetApp]);
@@ -168,8 +168,7 @@ export default function MissionDetailScreen() {
       });
 
       if (!result.canceled) {
-        setPhotoUri(result.assets[0].uri);
-        setSubmitMessage(t("photoSaved"));
+        await saveProofMedia(mission?.id, "photo", result.assets[0].uri, "image/jpeg");
       }
     } catch (error) {
       console.warn("[Mission] camera unavailable", readableError(error));
@@ -193,16 +192,18 @@ export default function MissionDetailScreen() {
     });
 
     if (!result.canceled) {
-      setPhotoUri(result.assets[0].uri);
-      setSubmitMessage(t("photoSaved"));
+      await saveProofMedia(mission?.id, "photo", result.assets[0].uri, "image/jpeg");
     }
   }
 
   async function toggleRecording() {
     if (recorderState.isRecording) {
       await audioRecorder.stop();
-      setAudioUri(audioRecorder.uri ?? undefined);
-      setSubmitMessage(t("audioReady"));
+      if (audioRecorder.uri) {
+        await saveProofMedia(mission?.id, "audio", audioRecorder.uri, audioMimeType(audioRecorder.uri));
+      } else {
+        setSubmitMessage(t("audioReady"));
+      }
       return;
     }
 
@@ -222,6 +223,41 @@ export default function MissionDetailScreen() {
     setSubmitMessage(t("recordingAudio"));
   }
 
+  async function saveProofMedia(missionId: string | undefined, kind: "photo" | "audio", uri: string, mimeType: string) {
+    if (!missionId) {
+      return;
+    }
+
+    const setLocalUri = kind === "photo" ? setPhotoUri : setAudioUri;
+    setLocalUri(uri);
+    setSubmitMessage(t("proofSaving"));
+
+    try {
+      const uploadedUri = isRemoteUri(uri)
+        ? uri
+        : await uploadMissionFileApi({
+            fileName: proofFileName(missionId, kind, uri),
+            kind,
+            mimeType,
+            missionId,
+            uri
+          });
+      const attachment: TaskAttachment = {
+        id: `proof-${kind}-${missionId}-${Date.now()}`,
+        mimeType,
+        name: proofFileName(missionId, kind, uploadedUri),
+        uri: uploadedUri
+      };
+      await addMissionAttachment(missionId, attachment);
+      setLocalUri(uploadedUri);
+      setSubmitMessage(kind === "photo" ? t("photoSaved") : t("audioReady"));
+    } catch (error) {
+      console.warn("[Mission] proof save failed", readableError(error));
+      Alert.alert(t("attachments"), t("proofSaveFailed"));
+      setSubmitMessage(t("proofSaveFailed"));
+    }
+  }
+
   async function submitCompletion(missionId: string) {
     const endedAt = new Date().toISOString();
     const startedAt = timerStartedAtRef.current ?? mission?.actualStartAt;
@@ -235,28 +271,28 @@ export default function MissionDetailScreen() {
       await recordMissionTimerEvent(mission.id, { elapsedSeconds: regularElapsedSeconds, eventType: "timer_end" });
     }
 
-    let uploadedPhotoUri = photoUri;
-    let uploadedAudioUri = audioUri;
+    let uploadedPhotoUri = proofPhotoUri;
+    let uploadedAudioUri = proofAudioUri;
 
     try {
-      uploadedPhotoUri = photoUri
+      uploadedPhotoUri = uploadedPhotoUri && !isRemoteUri(uploadedPhotoUri)
         ? await uploadMissionFileApi({
-            fileName: proofFileName(missionId, "photo", photoUri),
+            fileName: proofFileName(missionId, "photo", uploadedPhotoUri),
             kind: "photo",
             mimeType: "image/jpeg",
             missionId,
-            uri: photoUri
+            uri: uploadedPhotoUri
           })
-        : undefined;
-      uploadedAudioUri = audioUri
+        : uploadedPhotoUri;
+      uploadedAudioUri = uploadedAudioUri && !isRemoteUri(uploadedAudioUri)
         ? await uploadMissionFileApi({
-            fileName: proofFileName(missionId, "audio", audioUri),
+            fileName: proofFileName(missionId, "audio", uploadedAudioUri),
             kind: "audio",
-            mimeType: audioMimeType(audioUri),
+            mimeType: audioMimeType(uploadedAudioUri),
             missionId,
-            uri: audioUri
+            uri: uploadedAudioUri
           })
-        : undefined;
+        : uploadedAudioUri;
     } catch (error) {
       console.warn("[Mission] proof upload failed", readableError(error));
       Alert.alert(t("attachments"), "Proof upload failed. Please try again.");
@@ -908,6 +944,18 @@ function proofFileName(missionId: string, kind: "photo" | "audio", uri: string) 
   const cleanMissionId = missionId.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "mission";
   const extension = kind === "photo" ? ".jpg" : extensionFromUri(uri) || extensionForMimeType(audioMimeType(uri)) || ".m4a";
   return `${cleanMissionId}-${kind}-${Date.now()}${extension}`;
+}
+
+function latestProofAttachmentUri(mission: Mission | undefined, mediaType: "audio" | "image") {
+  return mission?.planDetail.attachments
+    .slice()
+    .reverse()
+    .find((attachment) => attachment.mimeType?.startsWith(`${mediaType}/`) || attachment.name.toLowerCase().includes(`proof-${mediaType === "image" ? "photo" : "audio"}`))
+    ?.uri;
+}
+
+function isRemoteUri(uri: string) {
+  return uri.startsWith("http://") || uri.startsWith("https://");
 }
 
 function audioMimeType(uri: string) {

@@ -520,8 +520,10 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
         try {
           const storedMission = await addMissionAttachmentApi(missionId, attachment);
           setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
-        } catch {
+        } catch (error) {
+          console.warn("[KoalaStore] add attachment failed", error);
           setMissionItems((current) => current);
+          throw error;
         }
       },
       updateMission: async (missionId, draft) => {

@@ -242,20 +242,20 @@ export default function ParentScreen() {
                   {missionStatusText(mission.status, t)}
                 </Text>
               </View>
-              {mission.completionRecord?.photoUri || mission.completionRecord?.audioUri ? (
+              {proofPhotoUriForMission(mission) || proofAudioUriForMission(mission) ? (
                 <View style={styles.proofPanel}>
-                  {mission.completionRecord.photoUri ? (
-                    <Pressable onPress={() => void Linking.openURL(mission.completionRecord?.photoUri ?? "")}>
-                      <Image source={{ uri: mission.completionRecord.photoUri }} style={styles.proofImage} />
+                  {proofPhotoUriForMission(mission) ? (
+                    <Pressable onPress={() => void Linking.openURL(proofPhotoUriForMission(mission) ?? "")}>
+                      <Image source={{ uri: proofPhotoUriForMission(mission) ?? "" }} style={styles.proofImage} />
                     </Pressable>
                   ) : null}
                   <View style={styles.proofCopy}>
                     <Text style={styles.proofTitle}>{t("proofAttached")}</Text>
                     <Text style={styles.proofMeta}>
-                      {mission.completionRecord.photoUri ? t("photoReady") : t("noPhoto")} · {mission.completionRecord.audioUri ? t("audioReady") : t("noAudio")}
+                      {proofPhotoUriForMission(mission) ? t("photoReady") : t("noPhoto")} · {proofAudioUriForMission(mission) ? t("audioReady") : t("noAudio")}
                     </Text>
-                    {mission.completionRecord.audioUri ? (
-                      <Pressable style={styles.linkButton} onPress={() => void Linking.openURL(mission.completionRecord?.audioUri ?? "")}>
+                    {proofAudioUriForMission(mission) ? (
+                      <Pressable style={styles.linkButton} onPress={() => void Linking.openURL(proofAudioUriForMission(mission) ?? "")}>
                         <Text style={styles.linkButtonText}>{t("openAudio")}</Text>
                       </Pressable>
                     ) : null}
@@ -710,6 +710,22 @@ function missionRecordMetaText(mission: Mission, t: (key: string) => string) {
   }
 
   return parts.join(" · ");
+}
+
+function proofPhotoUriForMission(mission: Mission) {
+  return mission.completionRecord?.photoUri ?? latestProofAttachmentUri(mission, "image");
+}
+
+function proofAudioUriForMission(mission: Mission) {
+  return mission.completionRecord?.audioUri ?? latestProofAttachmentUri(mission, "audio");
+}
+
+function latestProofAttachmentUri(mission: Mission, mediaType: "audio" | "image") {
+  return mission.planDetail.attachments
+    .slice()
+    .reverse()
+    .find((attachment) => attachment.mimeType?.startsWith(`${mediaType}/`) || attachment.name.toLowerCase().includes(`proof-${mediaType === "image" ? "photo" : "audio"}`))
+    ?.uri;
 }
 
 function formatClock(value?: string) {
