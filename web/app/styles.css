@@ -1199,6 +1199,14 @@ p {
   gap: 10px;
 }
 
+.detailAttachments {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
 .attachmentEditor {
   margin-top: 4px;
 }
@@ -1215,7 +1223,7 @@ p {
 }
 
 .attachmentEditor span,
-.detailAttachments span {
+.detailAttachmentCard span {
   display: block;
   color: #657365;
   font-size: 12px;
@@ -1223,14 +1231,83 @@ p {
   margin-top: 3px;
 }
 
-.detailAttachments a {
-  display: block;
-  border: 1px solid #e5dac9;
-  border-left: 4px solid #3f7d58;
-  border-radius: 8px;
+.detailAttachmentCard {
   color: #20352b;
-  padding: 10px 12px;
+  flex: 0 0 auto;
+  overflow: hidden;
   text-decoration: none;
+}
+
+.detailAttachmentCard.image {
+  position: relative;
+  width: 238px;
+  height: 168px;
+  border: 1px solid #e5dac9;
+  border-radius: 8px;
+  background: #efe8dd;
+}
+
+.detailAttachmentCard.image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachmentShade {
+  position: absolute;
+  inset: auto 0 0;
+  background: rgba(35, 55, 44, 0.84);
+  padding: 9px 12px;
+}
+
+.attachmentShade strong,
+.attachmentShade span {
+  color: #fff;
+}
+
+.attachmentShade strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachmentShade span {
+  color: #eaf1e8;
+}
+
+.detailAttachmentCard.file {
+  display: grid;
+  place-items: center;
+  border: 1px solid #e5dac9;
+  border-radius: 8px;
+  background: #faf7f0;
+  width: 132px;
+  min-height: 132px;
+  padding: 12px;
+  text-align: center;
+}
+
+.detailAttachmentCard.file strong {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachmentIcon {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 58px;
+  border-radius: 8px;
+  background: #eef3ea;
+  color: #3f7d58;
+  font-size: 18px;
+  font-weight: 900;
+  margin-bottom: 8px;
 }
 
 .gridTwo {

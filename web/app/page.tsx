@@ -2212,10 +2212,7 @@ function TaskDetail({
           <h3>{t("attachments")}</h3>
           <div className="detailAttachments">
             {mission.planDetail.attachments.map((attachment) => (
-              <a key={attachment.id} href={attachment.uri} rel="noreferrer" target="_blank">
-                <strong>{attachment.name}</strong>
-                <span>{attachmentLabel(attachment.mimeType, attachment.size)}</span>
-              </a>
+              <TaskAttachmentCard key={attachment.id} attachment={attachment} />
             ))}
           </div>
         </section>
@@ -2238,6 +2235,38 @@ function TaskDetail({
         <button className="danger" type="button" onClick={() => onDelete(mission.id)}>{t("delete")}</button>
       </div>
     </div>
+  );
+}
+
+function isImageAttachment(attachment: TaskAttachment) {
+  return attachment.mimeType?.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp)$/i.test(attachment.name) || /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(attachment.uri);
+}
+
+function isAudioAttachment(attachment: TaskAttachment) {
+  return attachment.mimeType?.startsWith("audio/") || /\.(m4a|mp3|wav|aac|caf|mp4)$/i.test(attachment.name) || /\.(m4a|mp3|wav|aac|caf|mp4)(\?|$)/i.test(attachment.uri);
+}
+
+function TaskAttachmentCard({ attachment }: { attachment: TaskAttachment }) {
+  const label = attachmentLabel(attachment.mimeType, attachment.size);
+
+  if (isImageAttachment(attachment)) {
+    return (
+      <a className="detailAttachmentCard image" href={attachment.uri} rel="noreferrer" target="_blank">
+        <img alt="" src={attachment.uri} />
+        <span className="attachmentShade">
+          <strong>{attachment.name}</strong>
+          <span>{label}</span>
+        </span>
+      </a>
+    );
+  }
+
+  return (
+    <a className="detailAttachmentCard file" href={attachment.uri} rel="noreferrer" target="_blank">
+      <span className="attachmentIcon">{attachmentTypeIcon(attachment)}</span>
+      <strong>{attachment.name}</strong>
+      <span>{label}</span>
+    </a>
   );
 }
 
@@ -2778,6 +2807,36 @@ function attachmentLabel(mimeType?: string, size?: number) {
   }
 
   return `${typeLabel} · ${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function attachmentTypeIcon(attachment: TaskAttachment) {
+  const lowerName = attachment.name.toLowerCase();
+
+  if (isAudioAttachment(attachment)) {
+    return "AUDIO";
+  }
+
+  if (attachment.mimeType === "application/pdf" || lowerName.endsWith(".pdf")) {
+    return "PDF";
+  }
+
+  if (lowerName.endsWith(".doc") || lowerName.endsWith(".docx")) {
+    return "DOC";
+  }
+
+  if (lowerName.endsWith(".ppt") || lowerName.endsWith(".pptx")) {
+    return "PPT";
+  }
+
+  if (lowerName.endsWith(".xls") || lowerName.endsWith(".xlsx") || lowerName.endsWith(".csv")) {
+    return "XLS";
+  }
+
+  if (lowerName.endsWith(".zip")) {
+    return "ZIP";
+  }
+
+  return "FILE";
 }
 
 function toList(value: string) {

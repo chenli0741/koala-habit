@@ -1,7 +1,7 @@
 import { Link, router } from "expo-router";
 import { useState } from "react";
-import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { Mission, MissionCategory, MissionExecutionType } from "../data/demo";
+import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Mission, MissionCategory, MissionExecutionType, TaskAttachment } from "../data/demo";
 import { profileForChild, useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
 
@@ -262,6 +262,16 @@ export default function ParentScreen() {
                   </View>
                 </View>
               ) : null}
+              {mission.planDetail.attachments.length > 0 ? (
+                <View style={styles.attachmentPanel}>
+                  <Text style={styles.attachmentPanelTitle}>{t("attachments")}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attachmentTileRow}>
+                    {mission.planDetail.attachments.map((attachment) => (
+                      <AttachmentPreviewTile key={attachment.id} attachment={attachment} onOpen={(item) => openAttachment(item, t)} t={t} />
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null}
               {mission.eventRecords.length > 0 || mission.activeRun ? (
                 <View style={styles.logPanel}>
                   <Text style={styles.logTitle}>{t("executionLog")}</Text>
@@ -468,6 +478,126 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     marginTop: 4
+  },
+  attachmentPanel: {
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: palette.line,
+    marginLeft: 56,
+    marginTop: 10,
+    padding: 10
+  },
+  attachmentPanelTitle: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  attachmentTileRow: {
+    gap: 12,
+    paddingTop: 10,
+    paddingBottom: 2
+  },
+  attachmentTile: {
+    width: 132,
+    minHeight: 132,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FAF7F0",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 12
+  },
+  imageAttachmentTile: {
+    width: 238,
+    height: 168,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#EFE8DD",
+    overflow: "hidden"
+  },
+  imageAttachmentPreview: {
+    width: "100%",
+    height: "100%"
+  },
+  mediaAttachmentOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(35, 55, 44, 0.82)",
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  mediaAttachmentTitle: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  mediaAttachmentTitleDark: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  mediaAttachmentMeta: {
+    color: "#EAF1E8",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 2
+  },
+  audioAttachmentTile: {
+    width: 238,
+    minHeight: 96,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FAF7F0",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14
+  },
+  audioAttachmentIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: "#EEF3EA",
+    color: palette.green,
+    fontSize: 24,
+    lineHeight: 52,
+    textAlign: "center"
+  },
+  audioAttachmentCopy: {
+    flex: 1
+  },
+  attachmentTileIcon: {
+    width: 76,
+    height: 58,
+    borderRadius: 8,
+    backgroundColor: "#EEF3EA",
+    color: palette.green,
+    fontSize: 18,
+    fontWeight: "900",
+    lineHeight: 58,
+    marginBottom: 10,
+    textAlign: "center"
+  },
+  attachmentName: {
+    color: palette.ink,
+    fontSize: 13,
+    fontWeight: "900",
+    maxWidth: "100%",
+    textAlign: "center"
+  },
+  attachmentMeta: {
+    color: palette.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 4,
+    maxWidth: "100%",
+    textAlign: "center"
   },
   linkButton: {
     alignSelf: "flex-start",
@@ -720,12 +850,105 @@ function proofAudioUriForMission(mission: Mission) {
   return mission.completionRecord?.audioUri ?? latestProofAttachmentUri(mission, "audio");
 }
 
+function AttachmentPreviewTile({ attachment, onOpen, t }: { attachment: TaskAttachment; onOpen: (attachment: TaskAttachment) => void; t: (key: string) => string }) {
+  if (isImageAttachment(attachment)) {
+    return (
+      <Pressable style={styles.imageAttachmentTile} onPress={() => onOpen(attachment)}>
+        <Image source={{ uri: attachment.uri }} style={styles.imageAttachmentPreview} />
+        <View style={styles.mediaAttachmentOverlay}>
+          <Text style={styles.mediaAttachmentTitle}>{t("photoReady")}</Text>
+          <Text style={styles.mediaAttachmentMeta}>{attachmentLabel(attachment.mimeType, attachment.size)}</Text>
+        </View>
+      </Pressable>
+    );
+  }
+
+  if (isAudioAttachment(attachment)) {
+    return (
+      <Pressable style={styles.audioAttachmentTile} onPress={() => onOpen(attachment)}>
+        <Text style={styles.audioAttachmentIcon}>🎤</Text>
+        <View style={styles.audioAttachmentCopy}>
+          <Text style={styles.mediaAttachmentTitleDark}>{t("audioReady")}</Text>
+          <Text style={styles.attachmentMeta}>{t("openAudio")} · {attachmentLabel(attachment.mimeType, attachment.size)}</Text>
+        </View>
+      </Pressable>
+    );
+  }
+
+  return (
+    <Pressable style={styles.attachmentTile} onPress={() => onOpen(attachment)}>
+      <Text style={styles.attachmentTileIcon}>{fileIcon(attachment.name, attachment.mimeType)}</Text>
+      <Text numberOfLines={1} style={styles.attachmentName}>{attachment.name}</Text>
+      <Text numberOfLines={1} style={styles.attachmentMeta}>{attachmentLabel(attachment.mimeType, attachment.size)}</Text>
+    </Pressable>
+  );
+}
+
+function openAttachment(attachment: TaskAttachment, t: (key: string) => string) {
+  if (attachment.uri.startsWith("data:")) {
+    Alert.alert(t("cannotOpenFileTitle"), t("cannotOpenFileBody"));
+    return;
+  }
+
+  void Linking.openURL(attachment.uri).catch(() => {
+    Alert.alert(t("cannotOpenFileTitle"), t("cannotOpenFileBody"));
+  });
+}
+
 function latestProofAttachmentUri(mission: Mission, mediaType: "audio" | "image") {
   return mission.planDetail.attachments
     .slice()
     .reverse()
     .find((attachment) => attachment.mimeType?.startsWith(`${mediaType}/`) || attachment.name.toLowerCase().includes(`proof-${mediaType === "image" ? "photo" : "audio"}`))
     ?.uri;
+}
+
+function attachmentLabel(mimeType?: string, size?: number) {
+  const typeLabel = mimeType?.split("/").pop()?.toUpperCase() ?? "FILE";
+
+  if (!size) {
+    return typeLabel;
+  }
+
+  if (size < 1024 * 1024) {
+    return `${typeLabel} · ${Math.max(1, Math.round(size / 1024))} KB`;
+  }
+
+  return `${typeLabel} · ${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function fileIcon(name: string, mimeType?: string) {
+  const lowerName = name.toLowerCase();
+
+  if (mimeType === "application/pdf" || lowerName.endsWith(".pdf")) {
+    return "PDF";
+  }
+
+  if (lowerName.endsWith(".doc") || lowerName.endsWith(".docx")) {
+    return "DOC";
+  }
+
+  if (lowerName.endsWith(".ppt") || lowerName.endsWith(".pptx")) {
+    return "PPT";
+  }
+
+  if (lowerName.endsWith(".xls") || lowerName.endsWith(".xlsx") || lowerName.endsWith(".csv")) {
+    return "XLS";
+  }
+
+  if (lowerName.endsWith(".zip")) {
+    return "ZIP";
+  }
+
+  return "FILE";
+}
+
+function isImageAttachment(attachment: TaskAttachment) {
+  return attachment.mimeType?.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp)$/i.test(attachment.name) || /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(attachment.uri);
+}
+
+function isAudioAttachment(attachment: TaskAttachment) {
+  return attachment.mimeType?.startsWith("audio/") || /\.(m4a|mp3|wav|aac|caf|mp4)$/i.test(attachment.name) || /\.(m4a|mp3|wav|aac|caf|mp4)(\?|$)/i.test(attachment.uri);
 }
 
 function formatClock(value?: string) {
