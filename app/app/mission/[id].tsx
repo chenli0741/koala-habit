@@ -10,10 +10,11 @@ import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
 import { Link, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Modal, Platform, Pressable, ScrollView, Share, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from "react-native";
 import { uploadMissionFileApi } from "../../data/api";
 import { encouragements, Mission, TaskAttachment } from "../../data/demo";
 import { useKoalaStore } from "../../data/store";
+import { endTimerLiveActivityForMission, startTimerLiveActivity, updateTimerLiveActivityForMission } from "../../native/liveActivity";
 import { palette, shared } from "../../ui/styles";
 
 const TIMER_NOTIFICATION_SOUND = "task-time-up.wav";
@@ -27,6 +28,9 @@ export default function MissionDetailScreen() {
   const [photoUri, setPhotoUri] = useState<string | undefined>();
   const [audioUri, setAudioUri] = useState<string | undefined>();
   const [isPlanExpanded, setIsPlanExpanded] = useState(false);
+  const [isAttachmentDockExpanded, setIsAttachmentDockExpanded] = useState(false);
+  const [completionNote, setCompletionNote] = useState("");
+  const [completionPromptMissionId, setCompletionPromptMissionId] = useState<string | undefined>();
   const [submitMessage, setSubmitMessage] = useState("");
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -43,6 +47,7 @@ export default function MissionDetailScreen() {
   const regularElapsedSeconds = mission && !isTimedTask && !isScheduleTask ? elapsedSecondsForRegularTimer(mission, nowMs) : 0;
   const proofPhotoUri = photoUri ?? mission?.completionRecord?.photoUri ?? latestProofAttachmentUri(mission, "image");
   const proofAudioUri = audioUri ?? mission?.completionRecord?.audioUri ?? latestProofAttachmentUri(mission, "audio");
+  const submittedCompletionNote = mission ? completionNoteForMission(mission) : undefined;
   const timerMinutes = useMemo(() => mission?.timeLimitMinutes ?? 10, [mission?.timeLimitMinutes]);
   const timeLimitSeconds = timerMinutes * 60;
   const targetAppOptions = useMemo(() => targetAppOptionsForMission(mission?.targetApp), [mission?.targetApp]);
@@ -65,9 +70,22 @@ export default function MissionDetailScreen() {
     ? entertainmentSeconds ?? 0
     : hasFinishedEntertainmentRun
       ? 0
-    : remainingSeconds;
+      : remainingSeconds;
   const isEntertainmentOverdue = Boolean(activeEntertainmentRun && !isEntertainmentPaused && (entertainmentSeconds ?? 0) <= 0);
   const canPauseEntertainment = Boolean(activeEntertainmentRun && !isEntertainmentPaused);
+  const timerRibbon = mission
+    ? timerRibbonDataForMission({
+        activeRun: activeEntertainmentRun,
+        displaySeconds,
+        isOverdue: isEntertainmentOverdue,
+        isPaused: isEntertainmentPaused,
+        isTimedTask,
+        regularElapsedSeconds,
+        regularTimerState,
+        t,
+        targetApp: activeTargetApp
+      })
+    : undefined;
 
   useEffect(() => {
     async function prepareAudio() {
@@ -130,8 +148,9 @@ export default function MissionDetailScreen() {
 
     notifiedRunIdsRef.current.add(activeEntertainmentRun.id);
     setSubmitMessage(t("timerFinished"));
+    void updateTimerLiveActivityForMission(mission?.id, { status: "overdue" });
     speakTimerFinished(t("timerFinishedVoice"));
-  }, [activeEntertainmentRun, entertainmentSeconds, isEntertainmentPaused, t]);
+  }, [activeEntertainmentRun, entertainmentSeconds, isEntertainmentPaused, mission?.id, t]);
 
   useEffect(() => {
     if (!mission) {
@@ -271,8 +290,8 @@ export default function MissionDetailScreen() {
       await recordMissionTimerEvent(mission.id, { elapsedSeconds: regularElapsedSeconds, eventType: "timer_end" });
     }
 
-    let uploadedPhotoUri = proofPhotoUri;
-    let uploadedAudioUri = proofAudioUri;
+    let uploadedPhotoUri = photoUri ?? (proofPhotoUri && isRemoteUri(proofPhotoUri) ? proofPhotoUri : undefined);
+    let uploadedAudioUri = audioUri ?? (proofAudioUri && isRemoteUri(proofAudioUri) ? proofAudioUri : undefined);
 
     try {
       uploadedPhotoUri = uploadedPhotoUri && !isRemoteUri(uploadedPhotoUri)
@@ -300,19 +319,39 @@ export default function MissionDetailScreen() {
     }
 
     try {
+      const note = completionNote.trim();
       await completeMission(missionId, {
         actualMinutes,
         audioUri: uploadedAudioUri,
         endedAt,
+        note: note || undefined,
         photoUri: uploadedPhotoUri,
         startedAt
       });
       setSubmitMessage(photoUri || audioUri ? t("proofAttached") : t("complete"));
+      setCompletionNote("");
+      setCompletionPromptMissionId(undefined);
     } catch (error) {
       console.warn("[Mission] completion save failed", readableError(error));
-      Alert.alert(t("attachments"), t("proofSaveFailed"));
-      setSubmitMessage(t("proofSaveFailed"));
+      Alert.alert(t("submitResult"), t("completionSaveFailed"));
+      setSubmitMessage(t("completionSaveFailed"));
     }
+  }
+
+  function openCompletionPrompt(missionId: string) {
+    setCompletionPromptMissionId(missionId);
+  }
+
+  function closeCompletionPrompt() {
+    setCompletionPromptMissionId(undefined);
+  }
+
+  function confirmCompletionPrompt() {
+    if (!completionPromptMissionId) {
+      return;
+    }
+
+    void submitCompletion(completionPromptMissionId);
   }
 
   async function startTimer() {
@@ -387,6 +426,13 @@ export default function MissionDetailScreen() {
     });
     const notificationId = await scheduleTimerNotification(targetApp ?? t("targetApp"), endAt, t);
     debugTargetApp("notification scheduled", { notificationId });
+    await startTimerLiveActivity({
+      endAt: endAt.toISOString(),
+      missionId: mission.id,
+      startAt: startAt.toISOString(),
+      targetApp,
+      title: mission.title
+    });
 
     const runPromise = startEntertainmentRun(mission.id, {
       endAt: endAt.toISOString(),
@@ -418,6 +464,7 @@ export default function MissionDetailScreen() {
     const overdueMinutes = Math.max(0, Math.ceil(-remainingAtStop / 60));
 
     await cancelTimerNotification(activeEntertainmentRun.notificationId);
+    await endTimerLiveActivityForMission(mission.id);
     await finishEntertainmentRun(mission.id, activeEntertainmentRun.id, {
       actualDurationMinutes,
       completedAt: stoppedAt.toISOString(),
@@ -442,6 +489,11 @@ export default function MissionDetailScreen() {
     const overdueMinutes = Math.max(0, Math.ceil(-remainingAtPause / 60));
 
     await cancelTimerNotification(activeEntertainmentRun.notificationId);
+    await updateTimerLiveActivityForMission(mission.id, {
+      isPaused: true,
+      pausedAt: pausedAt.toISOString(),
+      status: "paused"
+    });
     await pauseEntertainmentRun(mission.id, activeEntertainmentRun.id, {
       actualDurationMinutes,
       overdue: overdueMinutes > 0,
@@ -461,6 +513,12 @@ export default function MissionDetailScreen() {
     const pauseDurationMs = Math.max(0, resumedAt.getTime() - pausedAt.getTime());
     const nextEndAt = new Date(new Date(activeEntertainmentRun.endAt).getTime() + pauseDurationMs);
     const notificationId = await scheduleTimerNotification(activeEntertainmentRun.targetApp ?? activeTargetApp ?? t("targetApp"), nextEndAt, t);
+    await updateTimerLiveActivityForMission(mission.id, {
+      endAt: nextEndAt.toISOString(),
+      isPaused: false,
+      pausedAt: undefined,
+      status: "running"
+    });
 
     await resumeEntertainmentRun(mission.id, activeEntertainmentRun.id, {
       endAt: nextEndAt.toISOString(),
@@ -506,18 +564,19 @@ export default function MissionDetailScreen() {
   const displayProgress = isVisiblyComplete ? mission.total : mission.progress;
   const displayStatus = isVisiblyComplete ? "done" : mission.status;
   const percent = Math.round((displayProgress / mission.total) * 100);
-  const planLongText = [mission.planDetail.summary, mission.planDetail.notes, mission.detail].filter(Boolean).join("\n\n");
+  const planLongText = uniquePlanText([mission.planDetail.summary, mission.planDetail.notes, mission.detail]);
+  const planNotes = isSamePlanText(mission.planDetail.notes, mission.planDetail.summary) ? "" : mission.planDetail.notes;
   const shouldShowMore = planLongText.length > 120;
 
   return (
     <View style={shared.screen}>
+      {timerRibbon ? <TimerTopRibbon data={timerRibbon} tone={mission.tone} /> : null}
       <View style={shared.pageHeader}>
         <View style={styles.heading}>
           <Text style={shared.kicker}>{missionCategoryLabel(mission.category)}</Text>
           <Text style={shared.title}>
             {mission.icon} {mission.title}
           </Text>
-          <Text numberOfLines={2} style={StyleSheet.flatten([shared.subtitle, styles.headerSubtitle])}>{mission.detail}</Text>
         </View>
         <Link href="/" style={shared.navButton}>
           <Text style={shared.navButtonText}>{t("backHome")}</Text>
@@ -548,8 +607,8 @@ export default function MissionDetailScreen() {
                     ))}
                   </View>
                 ) : null}
-                {mission.planDetail.notes ? (
-                  <Text numberOfLines={3} style={styles.planNotes}>{mission.planDetail.notes}</Text>
+                {planNotes ? (
+                  <Text numberOfLines={3} style={styles.planNotes}>{planNotes}</Text>
                 ) : null}
                 <View style={styles.planActions}>
                   {shouldShowMore ? (
@@ -573,12 +632,17 @@ export default function MissionDetailScreen() {
           </View>
           {mission.planDetail.attachments.length > 0 ? (
             <View style={styles.attachmentDock}>
-              <Text style={styles.sectionLabel}>{t("attachments")}</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attachmentTileRow}>
-                {mission.planDetail.attachments.map((attachment) => (
-                  <AttachmentPreviewTile key={attachment.id} attachment={attachment} onOpen={openAttachment} t={t} />
-                ))}
-              </ScrollView>
+              <Pressable style={styles.attachmentDockHeader} onPress={() => setIsAttachmentDockExpanded((current) => !current)}>
+                <Text style={styles.sectionLabel}>{t("attachments")} · {mission.planDetail.attachments.length}</Text>
+                <Text style={styles.attachmentDockToggle}>{isAttachmentDockExpanded ? t("collapse") : t("expand")}</Text>
+              </Pressable>
+              {isAttachmentDockExpanded ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attachmentTileRow}>
+                  {mission.planDetail.attachments.map((attachment) => (
+                    <AttachmentPreviewTile key={attachment.id} attachment={attachment} onOpen={openAttachment} t={t} />
+                  ))}
+                </ScrollView>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -599,7 +663,7 @@ export default function MissionDetailScreen() {
                     <Text style={styles.timerDoneText}>{t("done")}</Text>
                   ) : (
                     <View style={styles.timerActionColumn}>
-                      <Pressable style={styles.timerButton} onPress={() => submitCompletion(mission.id)}>
+                      <Pressable style={styles.timerButton} onPress={() => openCompletionPrompt(mission.id)}>
                         <Text style={styles.timerButtonText}>{t("done")}</Text>
                       </Pressable>
                       <Pressable style={styles.timerButtonSecondary} onPress={() => cancelMission(mission.id)}>
@@ -700,8 +764,18 @@ export default function MissionDetailScreen() {
             {!isTimedTask && !isScheduleTask ? (
               <>
                 <Text style={styles.cardTitle}>{t("submitResult")}</Text>
+                <TextInput
+                  multiline
+                  numberOfLines={3}
+                  onChangeText={setCompletionNote}
+                  placeholder={t("completionNotePlaceholder")}
+                  placeholderTextColor="#8C8172"
+                  style={styles.completionNoteInput}
+                  textAlignVertical="top"
+                  value={completionNote}
+                />
                 <View style={styles.actionGrid}>
-                  <Pressable style={styles.actionButton} onPress={() => submitCompletion(mission.id)}>
+                  <Pressable style={styles.actionButton} onPress={() => openCompletionPrompt(mission.id)}>
                     <Text style={styles.actionIcon}>✅</Text>
                     <Text style={styles.actionText}>{t("complete")}</Text>
                   </Pressable>
@@ -758,6 +832,7 @@ export default function MissionDetailScreen() {
                   {mission.actualEndAt ? ` · ${t("endedAt")} ${formatClock(mission.actualEndAt)}` : ""}
                 </Text>
               ) : null}
+              {submittedCompletionNote ? <Text style={styles.recordNote}>{submittedCompletionNote}</Text> : null}
               {mission.eventRecords.length > 0 ? (
                 <View style={styles.timerLedger}>
                   {mission.eventRecords.slice(-4).map((event) => (
@@ -784,6 +859,42 @@ export default function MissionDetailScreen() {
         transparent
         animationType="fade"
         supportedOrientations={["landscape-left", "landscape-right"]}
+        visible={Boolean(completionPromptMissionId)}
+        onRequestClose={closeCompletionPrompt}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={StyleSheet.flatten([styles.modalBox, styles.completionPromptBox])}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{t("completionSummary")}</Text>
+              <Pressable style={styles.closeButton} onPress={closeCompletionPrompt}>
+                <Text style={styles.closeButtonText}>{t("cancel")}</Text>
+              </Pressable>
+            </View>
+            <TextInput
+              multiline
+              numberOfLines={4}
+              onChangeText={setCompletionNote}
+              placeholder={t("completionNotePlaceholder")}
+              placeholderTextColor="#8C8172"
+              style={styles.completionPromptInput}
+              textAlignVertical="top"
+              value={completionNote}
+            />
+            <View style={styles.completionPromptActions}>
+              <Pressable style={styles.timerButtonSecondary} onPress={closeCompletionPrompt}>
+                <Text style={styles.timerButtonSecondaryText}>{t("cancel")}</Text>
+              </Pressable>
+              <Pressable style={styles.timerButton} onPress={confirmCompletionPrompt}>
+                <Text style={styles.timerButtonText}>{t("complete")}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        transparent
+        animationType="fade"
+        supportedOrientations={["landscape-left", "landscape-right"]}
         visible={isPlanExpanded}
         onRequestClose={() => setIsPlanExpanded(false)}
       >
@@ -803,6 +914,59 @@ export default function MissionDetailScreen() {
       </Modal>
     </View>
   );
+}
+
+type TimerRibbonData = {
+  label: string;
+  status: string;
+  value: string;
+};
+
+function TimerTopRibbon({ data, tone }: { data: TimerRibbonData; tone: string }) {
+  return (
+    <View pointerEvents="none" style={styles.timerRibbonWrap}>
+      <View style={styles.timerRibbon}>
+        <View style={StyleSheet.flatten([styles.timerRibbonPulse, { backgroundColor: tone }])} />
+        <Text numberOfLines={1} style={styles.timerRibbonStatus}>{data.status}</Text>
+        <Text numberOfLines={1} style={styles.timerRibbonValue}>{data.value}</Text>
+        <Text numberOfLines={1} style={styles.timerRibbonLabel}>{data.label}</Text>
+      </View>
+    </View>
+  );
+}
+
+function timerRibbonDataForMission(input: {
+  activeRun: Mission["activeRun"] | undefined;
+  displaySeconds: number;
+  isOverdue: boolean;
+  isPaused: boolean;
+  isTimedTask: boolean;
+  regularElapsedSeconds: number;
+  regularTimerState: RegularTimerState;
+  t: (key: string) => string;
+  targetApp?: string;
+}): TimerRibbonData | undefined {
+  if (input.isTimedTask) {
+    if (!input.activeRun) {
+      return undefined;
+    }
+
+    return {
+      label: input.targetApp ?? input.t("targetApp"),
+      status: input.isPaused ? input.t("paused") : input.isOverdue ? input.t("overdue") : input.t("countdown"),
+      value: formatDuration(input.displaySeconds)
+    };
+  }
+
+  if (input.regularTimerState !== "running" && input.regularTimerState !== "paused") {
+    return undefined;
+  }
+
+  return {
+    label: input.t("elapsedTime"),
+    status: input.regularTimerState === "paused" ? input.t("paused") : input.t("timerStarted"),
+    value: formatDuration(input.regularElapsedSeconds)
+  };
 }
 
 function missionStatusText(status: Mission["status"], t: (key: string) => string) {
@@ -848,6 +1012,33 @@ function missionCategoryLabel(category: Mission["category"]) {
 
 function formatPoints(points: number) {
   return points > 0 ? `+${points}` : `${points}`;
+}
+
+function uniquePlanText(parts: Array<string | undefined>) {
+  const seen = new Set<string>();
+
+  return parts
+    .map((part) => part?.trim() ?? "")
+    .filter(Boolean)
+    .filter((part) => {
+      const key = normalizePlanText(part);
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    })
+    .join("\n\n");
+}
+
+function isSamePlanText(left: string | undefined, right: string | undefined) {
+  return Boolean(left && right && normalizePlanText(left) === normalizePlanText(right));
+}
+
+function normalizePlanText(value: string) {
+  return value.trim().replace(/\s+/g, " ");
 }
 
 function AttachmentPreviewTile({ attachment, onOpen, t }: { attachment: TaskAttachment; onOpen: (attachment: TaskAttachment) => Promise<void>; t: (key: string) => string }) {
@@ -1045,8 +1236,14 @@ function extensionForMimeType(mimeType?: string) {
 function formatDuration(totalSeconds: number) {
   const sign = totalSeconds < 0 ? "-" : "";
   const absoluteSeconds = Math.abs(totalSeconds);
-  const minutes = Math.floor(absoluteSeconds / 60);
+  const hours = Math.floor(absoluteSeconds / 3600);
+  const minutes = Math.floor((absoluteSeconds % 3600) / 60);
   const seconds = absoluteSeconds % 60;
+
+  if (hours > 0) {
+    return `${sign}${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
   return `${sign}${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
@@ -1124,6 +1321,17 @@ function formatClock(value: string) {
   }
 
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function completionNoteForMission(mission: Mission) {
+  const completionEvent = [...mission.eventRecords].reverse().find((event) => event.eventType === "completion_note" || event.eventType === "completion");
+  const note = completionEvent?.metadata?.note;
+
+  if (typeof note === "string" && note.trim()) {
+    return note.trim();
+  }
+
+  return mission.completionRecord?.note?.trim() || undefined;
 }
 
 function taskEventText(eventType: Mission["eventRecords"][number]["eventType"], t: (key: string) => string) {
@@ -1579,6 +1787,55 @@ const styles = StyleSheet.create({
   secondaryCardContent: {
     paddingBottom: 2
   },
+  timerRibbonWrap: {
+    alignItems: "center",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: Platform.select({ android: (NativeStatusBar.currentHeight ?? 0) + 8, default: 10 }),
+    zIndex: 20
+  },
+  timerRibbon: {
+    alignItems: "center",
+    backgroundColor: "#050706",
+    borderRadius: 28,
+    flexDirection: "row",
+    gap: 8,
+    maxWidth: "72%",
+    minHeight: 48,
+    minWidth: 260,
+    paddingHorizontal: 16,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 16
+  },
+  timerRibbonPulse: {
+    borderRadius: 7,
+    height: 14,
+    width: 14
+  },
+  timerRibbonStatus: {
+    color: "#C8D8CE",
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  timerRibbonValue: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "900",
+    includeFontPadding: false,
+    minWidth: 64,
+    textAlign: "center"
+  },
+  timerRibbonLabel: {
+    color: "#C8D8CE",
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: "900",
+    maxWidth: 120
+  },
   cardTitle: {
     fontSize: 22,
     fontWeight: "900",
@@ -1844,25 +2101,40 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     paddingTop: 12
   },
-  attachmentTileRow: {
+  attachmentDockHeader: {
+    alignItems: "center",
+    flexDirection: "row",
     gap: 12,
+    justifyContent: "space-between"
+  },
+  attachmentDockToggle: {
+    borderRadius: 8,
+    backgroundColor: "#EEF3EA",
+    color: palette.green,
+    fontSize: 12,
+    fontWeight: "900",
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  attachmentTileRow: {
+    gap: 10,
     paddingTop: 10,
     paddingBottom: 2
   },
   attachmentTile: {
-    width: 132,
-    minHeight: 132,
+    width: 104,
+    minHeight: 104,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: palette.line,
     backgroundColor: "#FAF7F0",
     alignItems: "center",
     justifyContent: "center",
-    padding: 12
+    padding: 10
   },
   imageAttachmentTile: {
-    width: 238,
-    height: 168,
+    width: 164,
+    height: 116,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: palette.line,
@@ -1879,67 +2151,67 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: "rgba(35, 55, 44, 0.82)",
-    paddingHorizontal: 12,
-    paddingVertical: 8
+    paddingHorizontal: 10,
+    paddingVertical: 7
   },
   mediaAttachmentTitle: {
     color: "#FFFFFF",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "900"
   },
   mediaAttachmentMeta: {
     color: "#EAF1E8",
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "800",
     marginTop: 2
   },
   audioAttachmentTile: {
-    width: 238,
-    minHeight: 96,
+    width: 168,
+    minHeight: 74,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: palette.line,
     backgroundColor: "#FAF7F0",
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 14
+    gap: 10,
+    padding: 10
   },
   audioAttachmentIcon: {
-    width: 52,
-    height: 52,
+    width: 40,
+    height: 40,
     borderRadius: 8,
     backgroundColor: "#EEF3EA",
     color: palette.green,
-    fontSize: 24,
-    lineHeight: 52,
+    fontSize: 20,
+    lineHeight: 40,
     textAlign: "center"
   },
   audioAttachmentCopy: {
     flex: 1
   },
   attachmentTileIcon: {
-    width: 76,
-    height: 58,
+    width: 58,
+    height: 44,
     borderRadius: 8,
     backgroundColor: "#EEF3EA",
     color: palette.green,
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: "900",
-    lineHeight: 58,
-    marginBottom: 10,
+    lineHeight: 44,
+    marginBottom: 8,
     textAlign: "center"
   },
   attachmentName: {
     color: palette.ink,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "900",
     maxWidth: "100%",
     textAlign: "center"
   },
   attachmentMeta: {
     color: palette.muted,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "800",
     marginTop: 4,
     maxWidth: "100%",
@@ -1948,6 +2220,20 @@ const styles = StyleSheet.create({
   actionGrid: {
     flexDirection: "row",
     gap: 12
+  },
+  completionNoteInput: {
+    minHeight: 92,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FFFFFF",
+    color: palette.ink,
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 22,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12
   },
   actionButton: {
     flex: 1,
@@ -2083,6 +2369,19 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 8
   },
+  recordNote: {
+    marginTop: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FFFFFF",
+    color: palette.ink,
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
   timerLedger: {
     gap: 4,
     marginTop: 10
@@ -2110,6 +2409,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: palette.paper,
     padding: 22
+  },
+  completionPromptBox: {
+    maxWidth: 620
   },
   modalHeader: {
     flexDirection: "row",
@@ -2146,5 +2448,24 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: "700",
     lineHeight: 30
+  },
+  completionPromptInput: {
+    minHeight: 130,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: "#FFFFFF",
+    color: palette.ink,
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  completionPromptActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 14
   }
 });

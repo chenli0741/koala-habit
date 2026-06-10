@@ -1,6 +1,6 @@
 {
   "name": "koala-habit",
-  "version": "1.21",
+  "version": "1.22",
   "private": true,
   "workspaces": [
     "app",
@@ -10,6 +10,8 @@
   "scripts": {
     "app": "scripts/start-ipad.sh",
     "app:device": "scripts/start-device.sh",
+    "app:install:device": "npm exec -w app -- expo run:ios --device",
+    "app:install:iphone15": "npm exec -w app -- expo run:ios --device \"LiChen iPhone 15\"",
     "app:expo-go": "npm run start -w app",
     "backend": "scripts/start-backend.sh",
     "build:preview": "npm run build:preview -w app",

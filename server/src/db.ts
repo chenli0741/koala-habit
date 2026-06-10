@@ -52,11 +52,23 @@ export type MissionInput = {
   total: number;
 };
 
+export type MissionUpdateScope = "single" | "future";
+
 export type MissionLayoutInput = {
   id: string;
   layoutColumn: "primary" | "secondary";
   layoutOrder: number;
 };
+
+const defaultPrimaryTaskOrder = [
+  "跑步和晨练",
+  "新加坡数学",
+  "排球基础练习",
+  "中文认读和字帖",
+  "体能和基本功练习",
+  "户外活动",
+  "iReady阅读和读后感日记"
+];
 
 export type MissionTimerEventInput = {
   elapsedSeconds?: number;
@@ -101,6 +113,7 @@ type TaskEventType =
   | "timer_resume"
   | "timer_end"
   | "completion"
+  | "completion_note"
   | "cancelled"
   | "attachment_added";
 
@@ -394,6 +407,7 @@ export async function initDb() {
 
   try {
     await withDbRetry(seedDefaultData);
+    await withDbRetry(backfillDefaultMissionLayouts);
   } catch (error) {
     console.warn("Skipping demo seed data after database connection errors.", error);
   }
@@ -676,6 +690,7 @@ export async function getToday(childId: string) {
         completion.actual_minutes,
         completion.parent_confirmed,
         completion.ai_score,
+        completion.note,
         completion.photo_uri,
         completion.audio_uri,
         active_run.record as active_run,
@@ -686,7 +701,7 @@ export async function getToday(childId: string) {
       left join task_occurrence_layouts layout on layout.mission_id = occurrence.id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
       left join lateral (
-        select completed_at, actual_minutes, parent_confirmed, ai_score, photo_uri, audio_uri
+        select completed_at, actual_minutes, parent_confirmed, ai_score, note, photo_uri, audio_uri
         from completion_records
         where occurrence_id = occurrence.id
         order by completed_at desc
@@ -818,6 +833,7 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
         completion.actual_minutes,
         completion.parent_confirmed,
         completion.ai_score,
+        completion.note,
         completion.photo_uri,
         completion.audio_uri,
         active_run.record as active_run,
@@ -828,7 +844,7 @@ export async function getMissionsForChild(childId: string, range?: MissionRange)
       left join task_occurrence_layouts layout on layout.mission_id = occurrence.id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
       left join lateral (
-        select completed_at, actual_minutes, parent_confirmed, ai_score, photo_uri, audio_uri
+        select completed_at, actual_minutes, parent_confirmed, ai_score, note, photo_uri, audio_uri
         from completion_records
         where occurrence_id = occurrence.id
         order by completed_at desc
@@ -1176,10 +1192,13 @@ export async function createMission(input: MissionInput) {
   return mission!;
 }
 
-export async function updateMission(missionId: string, input: MissionInput) {
+export async function updateMission(missionId: string, input: MissionInput, updateScope: MissionUpdateScope = "single") {
   assertPool();
-  const existingResult = await pool!.query("select child_id, status from task_occurrences where id = $1", [missionId]);
-  const existing = existingResult.rows[0] as { child_id: string; status: string } | undefined;
+  const existingResult = await pool!.query(
+    "select child_id, status, template_id, occurrence_date from task_occurrences where id = $1",
+    [missionId]
+  );
+  let existing = existingResult.rows[0] as { child_id: string; status: string; template_id: string; occurrence_date: Date | string } | undefined;
 
   const updateResult = await pool!.query(
     `
@@ -1222,6 +1241,11 @@ export async function updateMission(missionId: string, input: MissionInput) {
     }
 
     occurrenceId = materialized.id;
+    const materializedExistingResult = await pool!.query(
+      "select child_id, status, template_id, occurrence_date from task_occurrences where id = $1",
+      [occurrenceId]
+    );
+    existing = materializedExistingResult.rows[0] as { child_id: string; status: string; template_id: string; occurrence_date: Date | string } | undefined;
 
     await pool!.query(
       `
@@ -1257,39 +1281,6 @@ export async function updateMission(missionId: string, input: MissionInput) {
 
   await pool!.query(
     `
-      update task_templates template
-      set icon = $2,
-          category = $3,
-          default_reward_minutes = $4,
-          default_energy = $5,
-          tone = $6,
-          rrule = $7,
-          default_scheduled_time = $8,
-          default_time_limit_minutes = $9,
-          default_target_app = $10,
-          default_source = $11,
-          updated_at = now()
-      from task_occurrences occurrence
-      where occurrence.id = $1
-        and template.id = occurrence.template_id
-    `,
-    [
-      occurrenceId,
-      input.icon,
-      input.category,
-      input.rewardMinutes,
-      input.energy,
-      input.tone,
-      input.repeatRule ?? "FREQ=DAILY",
-      input.scheduledTime ?? null,
-      input.timeLimitMinutes ?? null,
-      input.targetApp ?? null,
-      input.source ?? "parent"
-    ]
-  );
-
-  await pool!.query(
-    `
       insert into task_plan_details (id, occurrence_id, summary, goals, attachments, notes)
       values ($1, $2, $3, $4::jsonb, $5::jsonb, $6)
       on conflict (occurrence_id) do update
@@ -1308,6 +1299,112 @@ export async function updateMission(missionId: string, input: MissionInput) {
       input.detail
     ]
   );
+
+  if (updateScope === "future" && existing?.template_id) {
+    const effectiveRepeatRule = input.repeatRule ?? "FREQ=DAILY";
+    const effectiveOccurrenceDate = formatDbDate(existing.occurrence_date);
+
+    await pool!.query(
+      `
+        update task_templates
+        set icon = $2,
+            title = $3,
+            category = $4,
+            default_target = $5,
+            default_goals = $6::jsonb,
+            default_reward_minutes = $7,
+            default_energy = $8,
+            default_total = $9,
+            tone = $10,
+            rrule = $11,
+            default_scheduled_time = $12,
+            default_time_limit_minutes = $13,
+            default_target_app = $14,
+            default_source = $15,
+            updated_at = now()
+        where id = $1
+      `,
+      [
+        existing.template_id,
+        input.icon,
+        input.title,
+        input.category,
+        input.target,
+        JSON.stringify(input.goals),
+        input.rewardMinutes,
+        input.energy,
+        input.total,
+        input.tone,
+        effectiveRepeatRule,
+        input.scheduledTime ?? null,
+        input.timeLimitMinutes ?? null,
+        input.targetApp ?? null,
+        input.source ?? "parent"
+      ]
+    );
+
+    const futureResult = await pool!.query(
+      `
+        update task_occurrences
+        set title = $3,
+            target = $4,
+            total = $5,
+            scheduled_time = $6,
+            time_limit_minutes = $7,
+            target_app = $8,
+            source = $9,
+            updated_at = now()
+        where template_id = $1
+          and id <> $10
+          and occurrence_date >= $2::date
+          and status = 'pending'
+        returning id
+      `,
+      [
+        existing.template_id,
+        effectiveOccurrenceDate,
+        input.title,
+        input.target,
+        input.total,
+        input.scheduledTime ?? null,
+        input.timeLimitMinutes ?? null,
+        input.targetApp ?? null,
+        input.source ?? "parent",
+        occurrenceId
+      ]
+    );
+
+    const futureOccurrenceIds = futureResult.rows.map((row) => String(row.id));
+
+    if (futureOccurrenceIds.length > 0) {
+      await pool!.query(
+        `
+          insert into task_plan_details (id, occurrence_id, summary, goals, attachments, notes)
+          select 'plan-' || occurrence_id, occurrence_id, $2, $3::jsonb, $4::jsonb, $5
+          from unnest($1::text[]) as occurrence_id
+          on conflict (occurrence_id) do update
+          set summary = excluded.summary,
+              goals = excluded.goals,
+              attachments = excluded.attachments,
+              notes = excluded.notes,
+              updated_at = now()
+        `,
+        [
+          futureOccurrenceIds,
+          input.detail || input.target,
+          JSON.stringify(input.goals),
+          JSON.stringify(input.attachments ?? []),
+          input.detail
+        ]
+      );
+    }
+
+    await pruneFuturePendingOccurrencesForRepeatRule(
+      existing.template_id,
+      effectiveRepeatRule,
+      occurrenceId
+    );
+  }
 
   await insertTaskEvent({
     childId: input.childId,
@@ -1699,6 +1796,69 @@ export async function completeMission(
       title: "Status changed"
     });
   }
+
+  return getMissionOccurrence(occurrenceId);
+}
+
+export async function updateCompletionNote(missionId: string, note: string) {
+  assertPool();
+
+  let occurrenceId = missionId;
+  let missionResult = await pool!.query("select id, child_id from task_occurrences where id = $1", [missionId]);
+
+  if (missionResult.rowCount === 0) {
+    const materialized = await materializeVirtualOccurrence(missionId);
+
+    if (!materialized) {
+      return null;
+    }
+
+    occurrenceId = materialized.id;
+    missionResult = await pool!.query("select id, child_id from task_occurrences where id = $1", [occurrenceId]);
+  }
+
+  const occurrence = missionResult.rows[0];
+
+  if (!occurrence) {
+    return null;
+  }
+
+  const normalizedNote = note.trim();
+  const updateResult = await pool!.query(
+    `
+      with latest as (
+        select id
+        from completion_records
+        where occurrence_id = $1
+        order by completed_at desc
+        limit 1
+      )
+      update completion_records completion
+      set note = $2
+      from latest
+      where completion.id = latest.id
+    `,
+    [occurrenceId, normalizedNote || null]
+  );
+
+  if (updateResult.rowCount === 0) {
+    await pool!.query(
+      `
+        insert into completion_records (id, occurrence_id, child_id, parent_confirmed, note)
+        values ($1, $2, $3, true, $4)
+      `,
+      [`run-${occurrenceId}-note-${Date.now()}`, occurrenceId, occurrence.child_id, normalizedNote || null]
+    );
+  }
+
+  await insertTaskEvent({
+    childId: occurrence.child_id,
+    content: normalizedNote || "Completion note cleared.",
+    eventType: "completion_note",
+    metadata: { note: normalizedNote || null },
+    occurrenceId,
+    title: "Completion note updated"
+  });
 
   return getMissionOccurrence(occurrenceId);
 }
@@ -2256,6 +2416,7 @@ async function getMissionOccurrence(occurrenceId: string) {
         completion.actual_minutes,
         completion.parent_confirmed,
         completion.ai_score,
+        completion.note,
         completion.photo_uri,
         completion.audio_uri,
         active_run.record as active_run,
@@ -2265,7 +2426,7 @@ async function getMissionOccurrence(occurrenceId: string) {
       join task_templates template on template.id = occurrence.template_id
       left join task_plan_details plan on plan.occurrence_id = occurrence.id
       left join lateral (
-        select completed_at, actual_minutes, parent_confirmed, ai_score, photo_uri, audio_uri
+        select completed_at, actual_minutes, parent_confirmed, ai_score, note, photo_uri, audio_uri
         from completion_records
         where occurrence_id = occurrence.id
         order by completed_at desc
@@ -2424,6 +2585,48 @@ async function ensureExpiredExecutions(childId: string, range: MissionRange) {
       );
     }
   }
+}
+
+async function pruneFuturePendingOccurrencesForRepeatRule(templateId: string, repeatRule: string, protectedOccurrenceId: string) {
+  const anchorResult = await pool!.query(
+    `
+      select occurrence_date
+      from task_occurrences
+      where template_id = $1
+      order by occurrence_date asc, created_at asc
+      limit 1
+    `,
+    [templateId]
+  );
+  const anchorDate = formatDbDate(anchorResult.rows[0]?.occurrence_date ?? new Date());
+
+  const result = await pool!.query(
+    `
+      select occurrence.id, occurrence.occurrence_date
+      from task_occurrences occurrence
+      where occurrence.template_id = $1
+        and occurrence.id <> $2
+        and occurrence.occurrence_date > current_date
+        and occurrence.status = 'pending'
+        and not exists (select 1 from completion_records completion where completion.occurrence_id = occurrence.id)
+        and not exists (select 1 from task_app_runs run where run.occurrence_id = occurrence.id)
+        and not exists (select 1 from task_execution_records execution where execution.occurrence_id = occurrence.id)
+        and not exists (select 1 from reward_records reward where reward.occurrence_id = occurrence.id)
+        and not exists (select 1 from task_events event where event.occurrence_id = occurrence.id)
+      order by occurrence.occurrence_date asc
+    `,
+    [templateId, protectedOccurrenceId]
+  );
+
+  const staleOccurrenceIds = result.rows
+    .filter((row) => !repeatRuleOccursOnDate(repeatRule, formatDbDate(row.occurrence_date), anchorDate))
+    .map((row) => String(row.id));
+
+  if (staleOccurrenceIds.length === 0) {
+    return;
+  }
+
+  await pool!.query("delete from task_occurrences where id = any($1::text[])", [staleOccurrenceIds]);
 }
 
 async function materializeVirtualOccurrence(missionId: string, occurrenceDate?: string) {
@@ -2633,20 +2836,27 @@ function mapTaskTemplate(row: Record<string, unknown>) {
 function mapMission(row: Record<string, unknown>) {
   const goals = Array.isArray(row.goals) ? row.goals.map(String) : [];
   const occurrenceStatus = String(row.occurrence_status ?? row.status ?? "pending") as OccurrenceStatus;
+  const title = String(row.title);
+  const defaultLayout = defaultLayoutForMissionTitle(title);
+  const layoutColumn =
+    row.layout_column === "primary" || row.layout_column === "secondary"
+      ? row.layout_column
+      : defaultLayout.layoutColumn;
+  const layoutOrder =
+    row.layout_order === null || row.layout_order === undefined
+      ? defaultLayout.layoutOrder
+      : Number(row.layout_order);
 
   return {
     id: String(row.id),
     childId: String(row.child_id),
     templateId: String(row.template_id ?? row.id),
     occurrenceDate: formatDbDate(row.occurrence_date),
-    layoutColumn:
-      row.layout_column === "primary" || row.layout_column === "secondary"
-        ? row.layout_column
-        : undefined,
-    layoutOrder: row.layout_order === null || row.layout_order === undefined ? undefined : Number(row.layout_order),
+    layoutColumn,
+    layoutOrder,
     scheduledTime: row.scheduled_time === null || row.scheduled_time === undefined ? "" : String(row.scheduled_time),
     icon: String(row.icon),
-    title: String(row.title),
+    title,
     category: String(row.category),
     repeatRule: String(row.rrule ?? "FREQ=DAILY"),
     target: String(row.target),
@@ -2667,6 +2877,7 @@ function mapMission(row: Record<string, unknown>) {
           audioUri: row.audio_uri === null || row.audio_uri === undefined ? undefined : String(row.audio_uri),
           completedAt: String(row.completed_at),
           endedAt: row.actual_end_at === null || row.actual_end_at === undefined ? String(row.completed_at) : String(row.actual_end_at),
+          note: row.note === null || row.note === undefined ? undefined : String(row.note),
           parentConfirmed: Boolean(row.parent_confirmed),
           photoUri: row.photo_uri === null || row.photo_uri === undefined ? undefined : String(row.photo_uri),
           startedAt: row.actual_start_at === null || row.actual_start_at === undefined ? undefined : String(row.actual_start_at)
@@ -2693,6 +2904,27 @@ function mapMission(row: Record<string, unknown>) {
     occurrenceStatus,
     tone: String(row.tone)
   };
+}
+
+function defaultLayoutForMissionTitle(title: string): { layoutColumn: "primary" | "secondary"; layoutOrder: number } {
+  const normalizedTitle = normalizeMissionTitle(title);
+  const order = defaultPrimaryTaskOrder.findIndex((primaryTitle) => normalizeMissionTitle(primaryTitle) === normalizedTitle);
+
+  if (order === -1) {
+    return {
+      layoutColumn: "secondary",
+      layoutOrder: Number.MAX_SAFE_INTEGER
+    };
+  }
+
+  return {
+    layoutColumn: "primary",
+    layoutOrder: order
+  };
+}
+
+function normalizeMissionTitle(value: string) {
+  return value.replace(/\s+/g, "").toLowerCase();
 }
 
 function inferExecutionType(input: { category: string; targetApp?: string; timeLimitMinutes?: number }) {
@@ -2943,6 +3175,104 @@ function hashPassword(password: string) {
 
 function familyIdForEmail(email: string) {
   return `family-${slugify(email)}`;
+}
+
+async function backfillDefaultMissionLayouts() {
+  assertPool();
+
+  await pool!.query(
+    `
+      with primary_titles as (
+        select title, ordinality - 1 as layout_order
+        from unnest($1::text[]) with ordinality as ordered_titles(title, ordinality)
+      )
+      update task_occurrences occurrence
+      set layout_column = 'primary',
+          layout_order = primary_titles.layout_order,
+          updated_at = now()
+      from primary_titles
+      where regexp_replace(lower(occurrence.title), '\\s+', '', 'g') = regexp_replace(lower(primary_titles.title), '\\s+', '', 'g')
+    `,
+    [defaultPrimaryTaskOrder]
+  );
+
+  await pool!.query(
+    `
+      with primary_titles as (
+        select regexp_replace(lower(title), '\\s+', '', 'g') as normalized_title
+        from unnest($1::text[]) as ordered_titles(title)
+      ),
+      secondary_occurrences as (
+        select
+          occurrence.id,
+          1000 + row_number() over (
+            partition by occurrence.child_id, occurrence.occurrence_date
+            order by occurrence.scheduled_time asc nulls last, occurrence.created_at asc, occurrence.title asc
+          ) as layout_order
+        from task_occurrences occurrence
+        where not exists (
+          select 1
+          from primary_titles
+          where primary_titles.normalized_title = regexp_replace(lower(occurrence.title), '\\s+', '', 'g')
+        )
+      )
+      update task_occurrences occurrence
+      set layout_column = 'secondary',
+          layout_order = secondary_occurrences.layout_order,
+          updated_at = now()
+      from secondary_occurrences
+      where occurrence.id = secondary_occurrences.id
+    `,
+    [defaultPrimaryTaskOrder]
+  );
+
+  await pool!.query(
+    `
+      with primary_titles as (
+        select title, ordinality - 1 as layout_order
+        from unnest($1::text[]) with ordinality as ordered_titles(title, ordinality)
+      )
+      update task_occurrence_layouts layout
+      set layout_column = 'primary',
+          layout_order = primary_titles.layout_order,
+          updated_at = now()
+      from task_occurrences occurrence, primary_titles
+      where layout.mission_id = occurrence.id
+        and regexp_replace(lower(occurrence.title), '\\s+', '', 'g') = regexp_replace(lower(primary_titles.title), '\\s+', '', 'g')
+    `,
+    [defaultPrimaryTaskOrder]
+  );
+
+  await pool!.query(
+    `
+      with primary_titles as (
+        select regexp_replace(lower(title), '\\s+', '', 'g') as normalized_title
+        from unnest($1::text[]) as ordered_titles(title)
+      ),
+      secondary_layouts as (
+        select
+          layout.mission_id,
+          1000 + row_number() over (
+            partition by layout.child_id, layout.occurrence_date
+            order by occurrence.scheduled_time asc nulls last, occurrence.created_at asc, occurrence.title asc
+          ) as layout_order
+        from task_occurrence_layouts layout
+        join task_occurrences occurrence on occurrence.id = layout.mission_id
+        where not exists (
+          select 1
+          from primary_titles
+          where primary_titles.normalized_title = regexp_replace(lower(occurrence.title), '\\s+', '', 'g')
+        )
+      )
+      update task_occurrence_layouts layout
+      set layout_column = 'secondary',
+          layout_order = secondary_layouts.layout_order,
+          updated_at = now()
+      from secondary_layouts
+      where layout.mission_id = secondary_layouts.mission_id
+    `,
+    [defaultPrimaryTaskOrder]
+  );
 }
 
 async function seedDefaultData() {

@@ -1,6 +1,6 @@
 {
   "name": "@koala-habit/app",
-  "version": "1.21",
+  "version": "1.22",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -11,8 +11,8 @@
     "build:preview:android": "npx eas-cli@latest build --profile preview --platform android",
     "build:preview:ios": "npx eas-cli@latest build --profile preview --platform ios",
     "build:preview:simulator": "npx eas-cli@latest build --profile preview-simulator --platform ios",
-    "device": "../../scripts/start-device.sh",
-    "ipad": "../../scripts/start-ipad.sh",
+    "device": "../scripts/start-device.sh",
+    "ipad": "../scripts/start-ipad.sh",
     "web": "expo start --web --port 8082",
     "typecheck": "tsc --noEmit"
   },
@@ -32,6 +32,7 @@
     "expo-speech": "~55.0.14",
     "expo-status-bar": "~55.0.6",
     "expo-system-ui": "~55.0.18",
+    "expo-updates": "~55.0.24",
     "expo-web-browser": "~55.0.16",
     "react": "19.2.0",
     "react-dom": "19.2.0",

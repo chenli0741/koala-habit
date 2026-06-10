@@ -37,6 +37,7 @@ type ServerMission = {
     audioUri?: string;
     completedAt?: string;
     endedAt?: string;
+    note?: string;
     parentConfirmed?: boolean;
     photoUri?: string;
     startedAt?: string;
@@ -79,7 +80,7 @@ type ServerMission = {
   rewardMinutes?: number;
   eventRecords?: Array<{
     content: string;
-    eventType: "created" | "updated" | "status_change" | "timer_start" | "timer_pause" | "timer_resume" | "timer_end" | "completion" | "cancelled" | "attachment_added";
+    eventType: "created" | "updated" | "status_change" | "timer_start" | "timer_pause" | "timer_resume" | "timer_end" | "completion" | "completion_note" | "cancelled" | "attachment_added";
     id: string;
     metadata?: Record<string, unknown>;
     recordedAt: string;
@@ -116,6 +117,8 @@ export type MissionLayoutItem = {
   layoutOrder: number;
 };
 
+export type MissionUpdateScope = "single" | "future";
+
 type MissionPayload = {
   childId: string;
   icon: string;
@@ -130,12 +133,14 @@ type MissionPayload = {
   targetApp?: string;
   source?: string;
   occurrenceDate?: string;
+  repeatRule?: string;
   scheduledTime?: string;
   energy: number;
   progress: number;
   total: number;
   status: "cancelled" | "done" | "todo" | "in_progress" | "expired";
   tone: string;
+  updateScope?: MissionUpdateScope;
 };
 
 export async function fetchFamily(familyId = "demo") {
@@ -282,9 +287,9 @@ export async function createMissionApi(payload: MissionPayload) {
   return mapMission(data.mission);
 }
 
-export async function updateMissionApi(missionId: string, payload: MissionPayload) {
+export async function updateMissionApi(missionId: string, payload: MissionPayload, updateScope?: MissionUpdateScope) {
   const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}`, {
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, updateScope }),
     method: "PATCH"
   });
 
@@ -401,6 +406,15 @@ export async function completeMissionApi(missionId: string, evidence?: MissionEv
   return mapMission(data.mission);
 }
 
+export async function updateCompletionNoteApi(missionId: string, note: string) {
+  const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/completion-note`, {
+    body: JSON.stringify({ note }),
+    method: "PATCH"
+  });
+
+  return mapMission(data.mission);
+}
+
 export async function recordMissionTimerEventApi(missionId: string, payload: MissionTimerEventPayload) {
   const data = await request<{ mission: ServerMission }>(`/families/demo/missions/${missionId}/timer-events`, {
     body: JSON.stringify(payload),
@@ -455,7 +469,7 @@ export async function addMissionAttachmentApi(missionId: string, attachment: Tas
   return mapMission(data.mission);
 }
 
-export function toMissionPayload(childId: string, draft: Omit<Mission, "id">): MissionPayload {
+export function toMissionPayload(childId: string, draft: Omit<Mission, "id">, updateScope?: MissionUpdateScope): MissionPayload {
   return {
     childId,
     icon: draft.icon,
@@ -466,6 +480,7 @@ export function toMissionPayload(childId: string, draft: Omit<Mission, "id">): M
     source: draft.source ?? "parent",
     executionType: draft.executionType,
     occurrenceDate: draft.occurrenceDate,
+    repeatRule: draft.repeatRule,
     scheduledTime: draft.scheduledTime,
     detail: draft.detail,
     goals: draft.goals,
@@ -475,7 +490,8 @@ export function toMissionPayload(childId: string, draft: Omit<Mission, "id">): M
     progress: draft.progress,
     total: draft.total,
     status: draft.status,
-    tone: draft.tone
+    tone: draft.tone,
+    updateScope
   };
 }
 

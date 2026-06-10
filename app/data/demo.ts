@@ -35,6 +35,7 @@ export type CompletionRecord = {
   audioUri?: string;
   completedAt?: string;
   endedAt?: string;
+  note?: string;
   parentConfirmed?: boolean;
   photoUri?: string;
   startedAt?: string;
@@ -49,6 +50,7 @@ export type TaskEventType =
   | "timer_resume"
   | "timer_end"
   | "completion"
+  | "completion_note"
   | "cancelled"
   | "attachment_added";
 

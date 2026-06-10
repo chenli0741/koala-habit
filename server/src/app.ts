@@ -33,6 +33,7 @@ import {
   updateMission,
   updateMissionLayout,
   updateFamily,
+  updateCompletionNote,
   updateTaskTemplate,
   upsertFamilyWithParent
 } from "./db.js";
@@ -97,6 +98,7 @@ type DemoMission = MissionInput & {
     audioUri?: string;
     completedAt: string;
     endedAt?: string;
+    note?: string;
     parentConfirmed: boolean;
     photoUri?: string;
     startedAt?: string;
@@ -285,7 +287,8 @@ const createMissionSchema = z.object({
   timeLimitMinutes: z.number().int().min(1).optional(),
   total: z.number().int().min(1).default(1),
   tone: z.string().min(1).default("#3F7D58"),
-  status: z.enum(["cancelled", "done", "todo", "in_progress", "expired"]).default("todo")
+  status: z.enum(["cancelled", "done", "todo", "in_progress", "expired"]).default("todo"),
+  updateScope: z.enum(["single", "future"]).optional()
 });
 
 const taskTemplateSchema = z.object({
@@ -318,6 +321,10 @@ const completeMissionSchema = z.object({
   photoUri: z.string().optional(),
   note: z.string().optional(),
   startedAt: z.string().datetime().optional()
+});
+
+const completionNoteSchema = z.object({
+  note: z.string().default("")
 });
 
 const missionLayoutSchema = z.object({
@@ -1031,7 +1038,7 @@ app.patch("/families/demo/missions/:id", async (c) => {
   const payload = createMissionSchema.parse(await c.req.json());
 
   if (dbEnabled) {
-    const mission = await updateMission(missionId, payload);
+    const mission = await updateMission(missionId, payload, payload.updateScope);
 
     if (!mission) {
       return c.json({ error: "Mission not found" }, 404);
@@ -1200,6 +1207,7 @@ app.post("/families/demo/missions/:id/complete", async (c) => {
     audioUri: payload.audioUri,
     completedAt: mission.actualEndAt,
     endedAt: mission.actualEndAt,
+    note: payload.note,
     parentConfirmed: true,
     photoUri: payload.photoUri,
     startedAt: payload.startedAt
@@ -1228,6 +1236,52 @@ app.post("/families/demo/missions/:id/complete", async (c) => {
       title: "Task completed"
     }
   ];
+  return c.json({ mission });
+});
+
+app.patch("/families/demo/missions/:id/completion-note", async (c) => {
+  const missionId = c.req.param("id");
+  const payload = completionNoteSchema.parse(await c.req.json().catch(() => ({})));
+
+  if (dbEnabled) {
+    const mission = await updateCompletionNote(missionId, payload.note);
+
+    if (!mission) {
+      return c.json({ error: "Mission not found" }, 404);
+    }
+
+    return c.json({ mission });
+  }
+
+  const mission = todayMissions.find((item) => item.id === missionId);
+
+  if (!mission) {
+    return c.json({ error: "Mission not found" }, 404);
+  }
+
+  const note = payload.note.trim();
+  mission.completionRecord = mission.completionRecord
+    ? {
+        ...mission.completionRecord,
+        note: note || undefined
+      }
+    : {
+        completedAt: new Date().toISOString(),
+        note: note || undefined,
+        parentConfirmed: true
+      };
+  mission.eventRecords = [
+    ...(mission.eventRecords ?? []),
+    {
+      content: note || "Completion note cleared.",
+      id: `event-${missionId}-completion-note-${Date.now()}`,
+      eventType: "completion_note",
+      metadata: { note: note || null },
+      recordedAt: new Date().toISOString(),
+      title: "Completion note updated"
+    }
+  ];
+
   return c.json({ mission });
 });
 

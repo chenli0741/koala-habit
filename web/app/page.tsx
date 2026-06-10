@@ -29,10 +29,33 @@ type Mission = {
   targetApp?: string;
   detail?: string;
   activeRun?: {
+    actualDurationMinutes?: number;
+    completedAt?: string;
+    endAt?: string;
+    overdue?: boolean;
+    overdueMinutes?: number;
+    plannedDurationMinutes?: number;
+    startAt?: string;
     status?: string;
+    targetApp?: string;
   } | null;
+  completionRecord?: {
+    actualMinutes?: number;
+    aiScore?: number;
+    audioUri?: string;
+    completedAt?: string;
+    endedAt?: string;
+    note?: string;
+    parentConfirmed?: boolean;
+    photoUri?: string;
+    startedAt?: string;
+  };
   eventRecords?: Array<{
+    content?: string;
     eventType?: string;
+    id?: string;
+    metadata?: Record<string, unknown>;
+    recordedAt?: string;
     title?: string;
   }>;
   goals?: string[];
@@ -40,6 +63,12 @@ type Mission = {
   occurrenceDate?: string;
   progress?: number;
   repeatRule?: string;
+  rewardRecords?: Array<{
+    id: string;
+    points: number;
+    reason: string;
+    source: string;
+  }>;
   rewardMinutes?: number;
   scheduledTime?: string;
   source?: string;
@@ -99,6 +128,7 @@ type CalendarView = "day" | "week" | "month";
 type TaskLayout = "left" | "split" | "right";
 type TaskKind = "completion" | "timed" | "schedule";
 type Language = "en" | "zh";
+type RepeatUpdateScope = "single" | "future";
 
 type TaskForm = {
   assessment: string;
@@ -154,6 +184,7 @@ type TaskFilters = {
   dateFrom: string;
   dateTo: string;
   sources: string[];
+  statuses: Mission["status"][];
   timeFrom: string;
   timeTo: string;
 };
@@ -187,13 +218,17 @@ const zh: Record<string, string> = {
   date: "日期",
   delete: "删除",
   detailedContent: "详细内容",
+  actualMinutes: "实际用时",
   discardTaskEditPrompt: "任务编辑中，放弃修改吗？",
+  done: "已完成",
+  editFutureRepeatTasks: "修改今天及以后所有任务",
   editTask: "编辑任务",
   expandEditor: "...",
   edit: "编辑",
   family: "家庭",
   goals: "目标清单",
   googleSaved: "Google 登录已保存。",
+  goalsCardHint: "建议 2-3 行。",
   history: "历史",
   imported: "导入",
   layout: "布局",
@@ -206,6 +241,7 @@ const zh: Record<string, string> = {
   newChild: "新增孩子",
   newTask: "新任务",
   noTasks: "这个视图没有任务",
+  cancelled: "已取消",
   overview: "概览",
   parentAdmin: "家长后台",
   parentName: "家长姓名",
@@ -215,11 +251,20 @@ const zh: Record<string, string> = {
   passwordTooShort: "密码至少需要 8 位。",
   register: "注册",
   repeat: "重复",
+  repeatEditPrompt: "这次修改要应用到哪些任务？",
+  repeatEditTitle: "修改重复任务",
   resetTimedTask: "重置限时状态",
+  executionContent: "执行内容",
+  executionLog: "执行记录",
+  executionStatus: "执行情况",
+  elapsedTime: "已计时",
+  proof: "证明",
   rewardEnergy: "奖励能量",
   rules: "规则",
   saveChanges: "保存修改",
   signedIn: "已登录。",
+  singleRepeatTask: "只修改这一天",
+  supplementCompletionNote: "补充完成情况",
   taskContent: "任务内容",
   templateCreated: "模板已创建。",
   templateDeleted: "模板已删除。",
@@ -246,8 +291,11 @@ const zh: Record<string, string> = {
   childProfileCreated: "孩子资料已创建。",
   childRequired: "请先创建孩子资料再添加任务。",
   completion: "完成率",
+  completionNote: "完成情况",
+  completionNoteOptional: "补充完成情况，可留空。",
   completionRate: "完成率",
   confirmComplete: "确认完成",
+  confirmTaskCompletion: "确认任务完成",
   continueGoogle: "继续使用 Google",
   close: "关闭",
   createFirstTask: "创建第一个任务，包含内容、清单、时间、奖励规则和附件。",
@@ -260,6 +308,7 @@ const zh: Record<string, string> = {
   instructions: "说明",
   noChecklist: "还没有清单。",
   noDetail: "还没有详细内容。",
+  noExecutionRecords: "还没有执行记录。",
   monthly: "每月",
   every: "每",
   ok: "好",
@@ -282,6 +331,11 @@ const zh: Record<string, string> = {
   serverUnreachable: "无法连接 API。请先运行 npm run server。",
   emailInvalid: "请输入正确的邮箱地址。",
   status: "状态",
+  statusCancelled: "已取消",
+  statusDone: "已完成",
+  statusExpired: "已过期",
+  statusInProgress: "进行中",
+  statusTodo: "未完成",
   taskConfirmed: "任务已确认。",
   taskCreated: "任务已创建。",
   taskDeleted: "任务已删除。",
@@ -297,12 +351,31 @@ const zh: Record<string, string> = {
   week: "周"
 };
 
+const en: Record<string, string> = {
+  actualMinutes: "Actual time",
+  completionNote: "Completion note",
+  completionNoteOptional: "Add completion details, optional.",
+  confirmTaskCompletion: "Confirm task completion",
+  editFutureRepeatTasks: "Edit today and future tasks",
+  executionContent: "Execution",
+  executionLog: "Execution log",
+  executionStatus: "Execution status",
+  elapsedTime: "Elapsed time",
+  goalsCardHint: "Recommended: 2-3 lines.",
+  noExecutionRecords: "No execution records yet.",
+  proof: "Proof",
+  repeatEditPrompt: "Which tasks should this change apply to?",
+  repeatEditTitle: "Edit repeating task",
+  singleRepeatTask: "Edit only this day",
+  supplementCompletionNote: "Add completion note"
+};
+
 function tr(language: Language, key: string) {
   if (language === "zh") {
     return zh[key] ?? key;
   }
 
-  return key
+  return en[key] ?? key
     .replace(/([A-Z])/g, " $1")
     .replace(/^./, (letter) => letter.toUpperCase());
 }
@@ -379,11 +452,20 @@ const sourceOptions = [
   { label: "Shared", value: "shared" }
 ];
 
+const statusOptions: Array<{ labelKey: string; value: Mission["status"] }> = [
+  { labelKey: "statusTodo", value: "todo" },
+  { labelKey: "statusInProgress", value: "in_progress" },
+  { labelKey: "statusDone", value: "done" },
+  { labelKey: "statusExpired", value: "expired" },
+  { labelKey: "statusCancelled", value: "cancelled" }
+];
+
 const emptyFilters: TaskFilters = {
   categories: [],
   dateFrom: "",
   dateTo: "",
   sources: [],
+  statuses: [],
   timeFrom: "",
   timeTo: ""
 };
@@ -533,6 +615,9 @@ export default function Page() {
   const [templateForm, setTemplateForm] = useState<TemplateForm>(emptyTemplateForm);
   const [editingMissionId, setEditingMissionId] = useState<string | null>(null);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [repeatUpdateRequest, setRepeatUpdateRequest] = useState<{ resolve: (scope: RepeatUpdateScope) => void } | null>(null);
+  const [completionDialogMissionId, setCompletionDialogMissionId] = useState<string | null>(null);
+  const [completionDialogNote, setCompletionDialogNote] = useState("");
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -550,6 +635,7 @@ export default function Page() {
     [calendarAnchorDate, filteredMissions]
   );
   const selectedMission = visibleMissions.find((mission) => mission.id === selectedMissionId) ?? visibleMissions[0] ?? filteredMissions[0];
+  const completionDialogMission = missions.find((mission) => mission.id === completionDialogMissionId);
   const completed = missions.filter((mission) => mission.status === "done").length;
   const totalEnergy = missions.reduce((sum, mission) => sum + (mission.status === "done" ? mission.energy : 0), 0);
   const completionRate = missions.length ? Math.round((completed / missions.length) * 100) : 0;
@@ -782,12 +868,18 @@ export default function Page() {
       payload.scheduledTime = normalizedForm.scheduledTime;
     }
 
-    const body = JSON.stringify(payload);
-
     if (editingMissionId) {
+      const editingMission = missions.find((mission) => mission.id === editingMissionId);
+
+      if (editingMission && isRepeatMission(editingMission)) {
+        payload.updateScope = await chooseRepeatUpdateScope();
+      }
+
+      const body = JSON.stringify(payload);
       await request(`/families/demo/missions/${editingMissionId}`, { body, method: "PATCH" });
       setMessage(t("taskUpdated"));
     } else {
+      const body = JSON.stringify(payload);
       await request("/families/demo/missions", { body, method: "POST" });
       setMessage(t("taskCreated"));
     }
@@ -799,13 +891,31 @@ export default function Page() {
     await loadFamily();
   }
 
-  async function completeTask(missionId: string) {
-    await request(`/families/demo/missions/${missionId}/complete`, {
-      body: JSON.stringify({ note: "Confirmed from web admin" }),
-      method: "POST"
-    });
+  async function completeTask(missionId: string, note = "") {
+    const mission = missions.find((item) => item.id === missionId);
+    const body = JSON.stringify({ note: note.trim() || undefined });
+
+    if (mission?.status === "done" || mission?.completionRecord) {
+      await request(`/families/demo/missions/${missionId}/completion-note`, {
+        body,
+        method: "PATCH"
+      });
+    } else {
+      await request(`/families/demo/missions/${missionId}/complete`, {
+        body,
+        method: "POST"
+      });
+    }
+
     setMessage(t("taskConfirmed"));
+    setCompletionDialogMissionId(null);
+    setCompletionDialogNote("");
     await loadFamily();
+  }
+
+  function startCompleteTask(mission: Mission) {
+    setCompletionDialogMissionId(mission.id);
+    setCompletionDialogNote(latestCompletionNote(mission) ?? "");
   }
 
   async function deleteTask(missionId: string) {
@@ -960,6 +1070,17 @@ export default function Page() {
     }
 
     return window.confirm(t("discardTaskEditPrompt"));
+  }
+
+  function chooseRepeatUpdateScope() {
+    return new Promise<RepeatUpdateScope>((resolve) => {
+      setRepeatUpdateRequest({ resolve });
+    });
+  }
+
+  function finishRepeatUpdateScope(scope: RepeatUpdateScope) {
+    repeatUpdateRequest?.resolve(scope);
+    setRepeatUpdateRequest(null);
   }
 
   function leaveTaskEdit() {
@@ -1207,7 +1328,7 @@ export default function Page() {
                     <span>{formatMissionTime(mission)} · {formatCategory(mission.category, t)} · {formatSource(mission.source, t)} · {mission.target}</span>
                     <p>{mission.detail ?? mission.target}</p>
                   </div>
-                  <span className={`status ${mission.status}`}>{mission.status}</span>
+                  <span className={`status ${mission.status}`}>{formatMissionStatus(mission.status, t)}</span>
                 </article>
               ))}
               {!visibleMissions.length ? (
@@ -1241,7 +1362,7 @@ export default function Page() {
                 taskKind={taskKind}
               />
             ) : selectedMission ? (
-              <TaskDetail mission={selectedMission} onComplete={completeTask} onDelete={deleteTask} onEdit={startEditTask} onResetTimedTask={resetTimedTask} t={t} />
+              <TaskDetail mission={selectedMission} onComplete={startCompleteTask} onDelete={deleteTask} onEdit={startEditTask} onResetTimedTask={resetTimedTask} t={t} />
             ) : (
               <div className="emptyState">
                 <h2>{t("noTasks")}</h2>
@@ -1399,13 +1520,60 @@ export default function Page() {
           <div className="historyList">
             {missions.map((mission) => (
               <article key={`history-${mission.id}`}>
-                <span>{mission.status === "done" ? t("done") : t("open")}</span>
+                <span>{formatMissionStatus(mission.status, t)}</span>
                 <strong>{mission.title}</strong>
                 <em>{mission.detail ?? mission.target}</em>
               </article>
             ))}
           </div>
         </section>
+      ) : null}
+
+      {completionDialogMissionId ? (
+        <div className="modalBackdrop" role="presentation">
+          <section aria-modal="true" className="largeTextDialog completionConfirmDialog" role="dialog">
+            <div className="sectionHead">
+              <div>
+                <p className="kicker">{t("completionNote")}</p>
+                <h2>{completionDialogMission?.status === "done" ? t("supplementCompletionNote") : t("confirmTaskCompletion")}</h2>
+              </div>
+            </div>
+            <label>
+              {t("completionNote")}
+              <textarea
+                className="completionNoteTextarea"
+                rows={4}
+                value={completionDialogNote}
+                onChange={(event) => setCompletionDialogNote(event.target.value)}
+                placeholder={t("completionNoteOptional")}
+              />
+            </label>
+            <div className="actionRow">
+              <button className="secondary" type="button" onClick={() => setCompletionDialogMissionId(null)}>{t("cancel")}</button>
+              <button type="button" onClick={() => void completeTask(completionDialogMissionId, completionDialogNote)}>
+                {completionDialogMission?.status === "done" ? t("saveChanges") : t("confirmComplete")}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {repeatUpdateRequest ? (
+        <div className="modalBackdrop" role="presentation">
+          <section aria-modal="true" className="largeTextDialog repeatScopeDialog" role="dialog">
+            <div className="sectionHead">
+              <div>
+                <p className="kicker">{t("repeat")}</p>
+                <h2>{t("repeatEditTitle")}</h2>
+              </div>
+            </div>
+            <p>{t("repeatEditPrompt")}</p>
+            <div className="actionRow">
+              <button type="button" onClick={() => finishRepeatUpdateScope("single")}>{t("singleRepeatTask")}</button>
+              <button className="secondary" type="button" onClick={() => finishRepeatUpdateScope("future")}>{t("editFutureRepeatTasks")}</button>
+            </div>
+          </section>
+        </div>
       ) : null}
     </main>
   );
@@ -1487,7 +1655,7 @@ function OverviewPage({
                   <strong>{mission.title}</strong>
                   <span>{formatMissionTime(mission)} · {formatCategory(mission.category, t)} · {formatSource(mission.source, t)}</span>
                 </div>
-                <span className={`status ${mission.status}`}>{mission.status}</span>
+                <span className={`status ${mission.status}`}>{formatMissionStatus(mission.status, t)}</span>
               </article>
             ))}
             {!missions.length ? (
@@ -1555,11 +1723,13 @@ function LayoutRail({ layout, onChange, t }: { layout: TaskLayout; onChange: (la
 }
 
 function ExpandableTextarea({
+  hint,
   label,
   onChange,
   t,
   value
 }: {
+  hint?: string;
   label: string;
   onChange: (value: string) => void;
   t: (key: string) => string;
@@ -1575,6 +1745,7 @@ function ExpandableTextarea({
         <button aria-label={t("expandEditor")} className="miniButton" title={t("expandEditor")} type="button" onClick={() => setIsExpanded(true)}>⤢</button>
       </div>
       <textarea id={textareaId} value={value} onChange={(event) => onChange(event.target.value)} />
+      {hint ? <span className="fieldHint">{hint}</span> : null}
       {isExpanded ? (
         <div
           className="modalBackdrop"
@@ -1594,6 +1765,7 @@ function ExpandableTextarea({
               <button className="secondary" type="button" onClick={() => setIsExpanded(false)}>{t("close")}</button>
             </div>
             <textarea autoFocus className="largeTextArea" value={value} onChange={(event) => onChange(event.target.value)} />
+            {hint ? <span className="fieldHint">{hint}</span> : null}
             <div className="actionRow">
               <button type="button" onClick={() => setIsExpanded(false)}>{t("ok")}</button>
             </div>
@@ -1678,7 +1850,7 @@ function TaskFormView({
         <label>{t("suggestedDuration")}<input type="number" min="0" value={form.suggestedMinutes ?? ""} onChange={(event) => onChange({ ...form, suggestedMinutes: event.target.value, timeLimitMinutes: isTimed ? event.target.value : form.timeLimitMinutes })} /></label>
         <RepeatRuleEditor value={form.repeatRule ?? ""} onChange={(repeatRule) => onChange({ ...form, repeatRule })} t={t} />
         {!isTimed ? <ExpandableTextarea label={isSchedule ? t("reminderNotes") : t("detailedContent")} t={t} value={form.detail} onChange={(detail) => onChange({ ...form, detail })} /> : null}
-        {isFlexible ? <ExpandableTextarea label={t("goals")} t={t} value={form.goals} onChange={(goals) => onChange({ ...form, goals })} /> : null}
+        {isFlexible ? <ExpandableTextarea hint={t("goalsCardHint")} label={t("goals")} t={t} value={form.goals} onChange={(goals) => onChange({ ...form, goals })} /> : null}
         {isFlexible ? <label>{t("materials")}<input value={form.materials} onChange={(event) => onChange({ ...form, materials: event.target.value })} /></label> : null}
         {isFlexible ? <label>{t("vocabulary")}<input value={form.vocabulary} onChange={(event) => onChange({ ...form, vocabulary: event.target.value })} /></label> : null}
         {!isSchedule ? <label className="wide">{t("assessmentMethod")}<input value={form.assessment} onChange={(event) => onChange({ ...form, assessment: event.target.value })} /></label> : null}
@@ -1754,6 +1926,12 @@ function TaskFilterDialog({
           options={sourceOptions.map((option) => ({ ...option, label: formatSource(option.value, t) }))}
           values={filters.sources}
           onChange={(sources) => onChange({ ...filters, sources })}
+        />
+        <MultiSelectGroup
+          label={t("status")}
+          options={statusOptions.map((option) => ({ label: t(option.labelKey), value: option.value }))}
+          values={filters.statuses}
+          onChange={(statuses) => onChange({ ...filters, statuses: statuses as Mission["status"][] })}
         />
         <div className="actionRow">
           <button className="secondary" type="button" onClick={onReset}>{t("clearFilters")}</button>
@@ -1909,7 +2087,7 @@ function TemplateFormView({
               onCommit={onRepeatCommit}
               t={t}
             />
-            <ExpandableTextarea label={t("goals")} t={t} value={form.goals} onChange={(goals) => onChange({ ...form, goals })} />
+            <ExpandableTextarea hint={t("goalsCardHint")} label={t("goals")} t={t} value={form.goals} onChange={(goals) => onChange({ ...form, goals })} />
             <label className="checkboxLine">
               <input checked={form.active} type="checkbox" onChange={(event) => onChange({ ...form, active: event.target.checked })} />
               {t("status")}
@@ -2167,7 +2345,7 @@ function TaskDetail({
   t
 }: {
   mission: Mission;
-  onComplete: (missionId: string) => void;
+  onComplete: (mission: Mission) => void;
   onDelete: (missionId: string) => void;
   onEdit: (mission: Mission) => void;
   onResetTimedTask: (missionId: string) => void;
@@ -2176,6 +2354,7 @@ function TaskDetail({
   const isTimedTask = isTimedMission(mission);
   const hasTimedSettings = Boolean(mission.timeLimitMinutes || mission.targetApp);
   const shouldShowTimedReset = hasTimedSettings || isTimedTask;
+  const [activeTab, setActiveTab] = useState<"content" | "execution">("content");
 
   return (
     <div className="taskDetail">
@@ -2187,54 +2366,143 @@ function TaskDetail({
           <span>{formatCategory(mission.category, t)} · {mission.target}</span>
         </div>
       </div>
-      {shouldShowTimedReset ? (
-        <div className="timedTaskControl">
-          <div>
-            <p className="kicker">{t("timeLimit")}</p>
-            <strong>{mission.timeLimitMinutes ? `${mission.timeLimitMinutes} min` : t("anyTime")}</strong>
-            <span>{mission.targetApp || t("targetApp")}</span>
-          </div>
-          <button className="secondary" type="button" onClick={() => onResetTimedTask(mission.id)}>{t("resetTimedTask")}</button>
-        </div>
-      ) : null}
-      <section>
-        <h3>{t("instructions")}</h3>
-        <p>{mission.detail || t("noDetail")}</p>
-      </section>
-      <section>
-        <h3>{t("goals")}</h3>
-        <ul>
-          {(mission.goals?.length ? mission.goals : [t("noChecklist")]).map((goal) => <li key={goal}>{goal}</li>)}
-        </ul>
-      </section>
-      {mission.planDetail?.attachments?.length ? (
-        <section>
-          <h3>{t("attachments")}</h3>
-          <div className="detailAttachments">
-            {mission.planDetail.attachments.map((attachment) => (
-              <TaskAttachmentCard key={attachment.id} attachment={attachment} />
-            ))}
-          </div>
-        </section>
-      ) : null}
-      <dl className="detailGrid">
-        <div><dt>{t("dateLabel")}</dt><dd>{formatDate(mission.occurrenceDate, t)}</dd></div>
-        <div><dt>{t("time")}</dt><dd>{mission.scheduledTime || t("anyTime")}</dd></div>
-        <div><dt>{t("source")}</dt><dd>{formatSource(mission.source, t)}</dd></div>
-        <div><dt>{t("timeLimit")}</dt><dd>{mission.timeLimitMinutes ? `${mission.timeLimitMinutes} min` : t("anyTime")}</dd></div>
-        <div><dt>{t("targetApp")}</dt><dd>{mission.targetApp || t("anyTime")}</dd></div>
-        <div><dt>{t("repeat")}</dt><dd>{formatRepeatRule(mission.repeatRule, t)}</dd></div>
-        <div><dt>{t("progress")}</dt><dd>{mission.progress ?? 0}/{mission.total ?? 1}</dd></div>
-        <div><dt>{t("reward")}</dt><dd>{mission.energy}</dd></div>
-        <div><dt>{t("status")}</dt><dd>{mission.status}</dd></div>
-        <div><dt>{t("review")}</dt><dd>{languageAwareReview(t)}</dd></div>
-      </dl>
+      <div className="detailTabs" role="tablist" aria-label={mission.title}>
+        <button className={activeTab === "content" ? "active" : ""} type="button" onClick={() => setActiveTab("content")}>{t("taskContent")}</button>
+        <button className={activeTab === "execution" ? "active" : ""} type="button" onClick={() => setActiveTab("execution")}>{t("executionContent")}</button>
+      </div>
+      {activeTab === "content" ? (
+        <>
+          {shouldShowTimedReset ? (
+            <div className="timedTaskControl">
+              <div>
+                <p className="kicker">{t("timeLimit")}</p>
+                <strong>{mission.timeLimitMinutes ? `${mission.timeLimitMinutes} min` : t("anyTime")}</strong>
+                <span>{mission.targetApp || t("targetApp")}</span>
+              </div>
+              <button className="secondary" type="button" onClick={() => onResetTimedTask(mission.id)}>{t("resetTimedTask")}</button>
+            </div>
+          ) : null}
+          <section>
+            <h3>{t("instructions")}</h3>
+            <p>{mission.detail || t("noDetail")}</p>
+          </section>
+          <section>
+            <h3>{t("goals")}</h3>
+            <ul>
+              {(mission.goals?.length ? mission.goals : [t("noChecklist")]).map((goal) => <li key={goal}>{goal}</li>)}
+            </ul>
+          </section>
+          {mission.planDetail?.attachments?.length ? (
+            <section>
+              <h3>{t("attachments")}</h3>
+              <div className="detailAttachments">
+                {mission.planDetail.attachments.map((attachment) => (
+                  <TaskAttachmentCard key={attachment.id} attachment={attachment} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+          <dl className="detailGrid">
+            <div><dt>{t("dateLabel")}</dt><dd>{formatDate(mission.occurrenceDate, t)}</dd></div>
+            <div><dt>{t("time")}</dt><dd>{mission.scheduledTime || t("anyTime")}</dd></div>
+            <div><dt>{t("source")}</dt><dd>{formatSource(mission.source, t)}</dd></div>
+            <div><dt>{t("timeLimit")}</dt><dd>{mission.timeLimitMinutes ? `${mission.timeLimitMinutes} min` : t("anyTime")}</dd></div>
+            <div><dt>{t("targetApp")}</dt><dd>{mission.targetApp || t("anyTime")}</dd></div>
+            <div><dt>{t("repeat")}</dt><dd>{formatRepeatRule(mission.repeatRule, t)}</dd></div>
+            <div><dt>{t("progress")}</dt><dd>{mission.progress ?? 0}/{mission.total ?? 1}</dd></div>
+            <div><dt>{t("reward")}</dt><dd>{mission.energy}</dd></div>
+            <div><dt>{t("status")}</dt><dd>{formatMissionStatus(mission.status, t)}</dd></div>
+            <div><dt>{t("review")}</dt><dd>{languageAwareReview(t)}</dd></div>
+          </dl>
+        </>
+      ) : (
+        <TaskExecutionSummary mission={mission} t={t} />
+      )}
       <div className="actionRow">
         <button type="button" onClick={() => onEdit(mission)}>{t("editTask")}</button>
-        <button className="secondary" type="button" onClick={() => onComplete(mission.id)}>{t("confirmComplete")}</button>
-        <button className="danger" type="button" onClick={() => onDelete(mission.id)}>{t("delete")}</button>
+        <button className={mission.status === "done" ? "successAction" : "secondary"} type="button" onClick={() => onComplete(mission)}>
+          {mission.status === "done" ? t("supplementCompletionNote") : t("confirmComplete")}
+        </button>
+        {mission.status !== "done" ? <button className="danger" type="button" onClick={() => onDelete(mission.id)}>{t("delete")}</button> : null}
       </div>
     </div>
+  );
+}
+
+function TaskExecutionSummary({ mission, t }: { mission: Mission; t: (key: string) => string }) {
+  const completion = mission.completionRecord;
+  const activeRun = mission.activeRun;
+  const recentEvents = [...(mission.eventRecords ?? [])].slice(-5).reverse();
+  const timerSnapshot = latestTimerSnapshot(mission);
+  const completionNote = latestCompletionNote(mission);
+  const proofLinks = [
+    completion?.photoUri ? { href: completion.photoUri, label: "Photo" } : null,
+    completion?.audioUri ? { href: completion.audioUri, label: "Audio" } : null
+  ].filter(Boolean) as Array<{ href: string; label: string }>;
+
+  return (
+    <section className="executionSummary">
+      <div className="executionSummaryHead">
+        <div>
+          <h3>{t("executionStatus")}</h3>
+          <p>{formatMissionStatus(mission.status, t)}</p>
+        </div>
+        {activeRun ? <span className={`status ${mission.status}`}>{activeRun.status ?? t("inProgress")}</span> : null}
+      </div>
+      {timerSnapshot ? (
+        <div className="timerExecutionCard">
+          <div>
+            <span>{timerSnapshot.label}</span>
+            <strong>{formatElapsedClock(timerSnapshot.elapsedSeconds)}</strong>
+          </div>
+          <p>{t("elapsedTime")} · {timerSnapshot.recordedAt ? formatDateTime(timerSnapshot.recordedAt) : formatMissionStatus(mission.status, t)}</p>
+        </div>
+      ) : null}
+      {completionNote ? (
+        <div className="completionNoteCard">
+          <span>{t("completionNote")}</span>
+          <p>{completionNote}</p>
+        </div>
+      ) : null}
+      <dl className="executionGrid">
+        <div>
+          <dt>{t("status")}</dt>
+          <dd>{formatMissionStatus(mission.status, t)}</dd>
+        </div>
+        <div>
+          <dt>{t("completedAt")}</dt>
+          <dd>{formatDateTime(completion?.completedAt ?? completion?.endedAt)}</dd>
+        </div>
+        <div>
+          <dt>{t("actualMinutes")}</dt>
+          <dd>{timerSnapshot ? formatDurationMinutes(timerSnapshot.elapsedSeconds / 60) : formatDurationMinutes(completion?.actualMinutes ?? activeRun?.actualDurationMinutes)}</dd>
+        </div>
+        <div>
+          <dt>{t("proof")}</dt>
+          <dd>
+            {proofLinks.length ? proofLinks.map((link) => (
+              <a key={link.label} href={link.href} rel="noreferrer" target="_blank">{link.label}</a>
+            )) : "—"}
+          </dd>
+        </div>
+      </dl>
+      {activeRun ? (
+        <div className="activeRunSummary">
+          <strong>{activeRun.targetApp || mission.target}</strong>
+          <span>{activeRun.startAt ? `${formatDateTime(activeRun.startAt)} → ${formatDateTime(activeRun.endAt)}` : activeRun.status}</span>
+        </div>
+      ) : null}
+      <div className="executionLog">
+        <h4>{t("executionLog")}</h4>
+        {recentEvents.length ? recentEvents.map((event, index) => (
+          <article key={event.id ?? `${event.eventType}-${index}`}>
+            <strong>{event.title || event.eventType || t("executionLog")}</strong>
+            <span>{formatDateTime(event.recordedAt)}</span>
+            {event.content ? <p>{event.content}</p> : null}
+          </article>
+        )) : <p>{t("noExecutionRecords")}</p>}
+      </div>
+    </section>
   );
 }
 
@@ -2668,6 +2936,89 @@ function formatSource(value: string | undefined, t: (key: string) => string) {
   }
 }
 
+function formatMissionStatus(status: Mission["status"], t: (key: string) => string) {
+  const option = statusOptions.find((item) => item.value === status);
+  return option ? t(option.labelKey) : status;
+}
+
+function latestTimerSnapshot(mission: Mission) {
+  if (mission.activeRun?.startAt && mission.activeRun.status === "running") {
+    const elapsedSeconds = Math.max(0, Math.round((Date.now() - new Date(mission.activeRun.startAt).getTime()) / 1000));
+    return {
+      elapsedSeconds,
+      label: "Timer running",
+      recordedAt: mission.activeRun.startAt
+    };
+  }
+
+  if (mission.activeRun?.actualDurationMinutes !== undefined) {
+    return {
+      elapsedSeconds: Math.round(mission.activeRun.actualDurationMinutes * 60),
+      label: `Timer ${mission.activeRun.status ?? "active"}`,
+      recordedAt: mission.activeRun.completedAt ?? mission.activeRun.startAt
+    };
+  }
+
+  const event = [...(mission.eventRecords ?? [])].reverse().find((item) => item.eventType?.startsWith("timer_") || item.title?.startsWith("Timer "));
+
+  if (!event) {
+    return null;
+  }
+
+  const elapsedSeconds = elapsedSecondsForEvent(event);
+
+  if (elapsedSeconds === undefined) {
+    return null;
+  }
+
+  return {
+    elapsedSeconds,
+    label: event.title || timerEventLabel(event.eventType),
+    recordedAt: event.recordedAt
+  };
+}
+
+function latestCompletionNote(mission: Mission) {
+  const event = [...(mission.eventRecords ?? [])].reverse().find((item) => item.eventType === "completion_note" || item.eventType === "completion");
+  const note = event?.metadata?.note;
+
+  if (typeof note === "string" && note.trim()) {
+    return note.trim();
+  }
+
+  return mission.completionRecord?.note?.trim() || undefined;
+}
+
+function elapsedSecondsForEvent(event: NonNullable<Mission["eventRecords"]>[number]) {
+  const metadataElapsed = event.metadata?.elapsedSeconds;
+
+  if (typeof metadataElapsed === "number") {
+    return metadataElapsed;
+  }
+
+  if (typeof metadataElapsed === "string" && metadataElapsed.trim()) {
+    return Number(metadataElapsed);
+  }
+
+  const match = event.content?.match(/(\d+)\s+seconds elapsed/i);
+  return match ? Number(match[1]) : undefined;
+}
+
+function timerEventLabel(eventType?: string) {
+  switch (eventType) {
+    case "timer_start":
+      return "Timer started";
+    case "timer_pause":
+      return "Timer paused";
+    case "timer_resume":
+      return "Timer resumed";
+    case "timer_end":
+      return "Timer ended";
+    default:
+      return "Timer";
+  }
+}
+
 function activeFilterCount(filters: TaskFilters) {
   return [
     filters.dateFrom,
@@ -2675,7 +3026,8 @@ function activeFilterCount(filters: TaskFilters) {
     filters.timeFrom,
     filters.timeTo,
     ...filters.categories,
-    ...filters.sources
+    ...filters.sources,
+    ...filters.statuses
   ].filter(Boolean).length;
 }
 
@@ -2707,6 +3059,10 @@ function applyTaskFilters(missions: Mission[], filters: TaskFilters) {
     }
 
     if (filters.sources.length > 0 && !filters.sources.includes(source)) {
+      return false;
+    }
+
+    if (filters.statuses.length > 0 && !filters.statuses.includes(mission.status)) {
       return false;
     }
 
@@ -2906,6 +3262,52 @@ function toDateKey(date: Date) {
 
 function formatDate(value?: string, t?: (key: string) => string) {
   return value ? value.slice(0, 10) : t ? t("today") : "Today";
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString(undefined, {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short"
+  });
+}
+
+function formatDurationMinutes(value?: number) {
+  return typeof value === "number" ? `${Math.round(value)} min` : "—";
+}
+
+function formatElapsedClock(seconds: number) {
+  const safeSeconds = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const remainder = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function isRepeatMission(mission: Mission) {
+  const repeatRule = mission.repeatRule?.trim();
+
+  if (!repeatRule || repeatRule === noRepeatRule) {
+    return false;
+  }
+
+  return !/COUNT=1(?:;|$)/.test(repeatRule);
 }
 
 function formatDateTitle(anchorDate: string, view: CalendarView) {

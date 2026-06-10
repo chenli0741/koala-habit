@@ -31,6 +31,10 @@ module.exports = ({ config }) => {
     ...config,
     name: variant.name,
     scheme: variant.scheme,
+    updates: {
+      ...(config.updates ?? {}),
+      url: `https://u.expo.dev/${projectId}`
+    },
     extra: {
       ...(config.extra ?? {}),
       apiUrl,
@@ -41,11 +45,15 @@ module.exports = ({ config }) => {
     },
     ios: {
       ...(config.ios ?? {}),
-      bundleIdentifier: variant.iosBundleIdentifier
+      bundleIdentifier: variant.iosBundleIdentifier,
+      runtimeVersion: "1.0.0"
     },
     android: {
       ...(config.android ?? {}),
-      package: variant.androidPackage
+      package: variant.androidPackage,
+      runtimeVersion: {
+        policy: "appVersion"
+      }
     }
   };
 };

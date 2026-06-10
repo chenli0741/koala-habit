@@ -1,5 +1,5 @@
 import * as SecureStore from "expo-secure-store";
-import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   addMissionAttachmentApi,
   cancelMissionApi,
@@ -9,6 +9,7 @@ import {
   createMissionApi,
   deleteMissionApi,
   fetchFamily,
+  fetchMissions,
   fetchToday,
   finishEntertainmentRunApi,
   FinishEntertainmentRunPayload,
@@ -16,6 +17,7 @@ import {
   loginParentApi,
   MissionEvidence,
   MissionTimerEventPayload,
+  MissionUpdateScope,
   pauseEntertainmentRunApi,
   PauseEntertainmentRunPayload,
   recordMissionTimerEventApi,
@@ -28,6 +30,7 @@ import {
   StartEntertainmentRunPayload,
   toMissionPayload,
   updateChildApi,
+  updateCompletionNoteApi,
   updateMissionLayoutApi,
   updateMissionApi
 } from "./api";
@@ -98,17 +101,20 @@ type KoalaStore = {
   logout: () => Promise<void>;
   addMission: (draft: MissionDraft) => Promise<void>;
   addMissionAttachment: (missionId: string, attachment: TaskAttachment) => Promise<void>;
-  updateMission: (missionId: string, draft: MissionDraft) => Promise<void>;
+  updateMission: (missionId: string, draft: MissionDraft, options?: { updateScope?: MissionUpdateScope }) => Promise<void>;
   updateMissionLayout: (layout: Array<{ id: string; layoutColumn: "primary" | "secondary"; layoutOrder: number }>) => Promise<void>;
   deleteMission: (missionId: string) => Promise<void>;
   cancelMission: (missionId: string) => Promise<void>;
   completeMission: (missionId: string, evidence?: MissionEvidence) => Promise<void>;
+  updateCompletionNote: (missionId: string, note: string) => Promise<void>;
+  refreshToday: (date?: string) => Promise<void>;
   recordMissionTimerEvent: (missionId: string, payload: MissionTimerEventPayload) => Promise<void>;
   startEntertainmentRun: (missionId: string, payload: StartEntertainmentRunPayload) => Promise<void>;
   finishEntertainmentRun: (missionId: string, runId: string, payload: FinishEntertainmentRunPayload) => Promise<void>;
   pauseEntertainmentRun: (missionId: string, runId: string, payload: PauseEntertainmentRunPayload) => Promise<void>;
   resumeEntertainmentRun: (missionId: string, runId: string, payload: ResumeEntertainmentRunPayload) => Promise<void>;
   getMission: (missionId: string | string[] | undefined) => Mission | undefined;
+  mergeMissions: (missions: Mission[]) => void;
   setLanguage: (language: Language) => void;
   t: (key: string) => string;
 };
@@ -154,11 +160,19 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
   const [childAccounts, setChildAccounts] = useState<ChildAccount[]>([]);
   const [activeChildId, setActiveChildId] = useState<string | null>(null);
   const [missionItems, setMissionItems] = useState<Mission[]>([]);
+  const [missionCache, setMissionCache] = useState<Mission[]>([]);
   const [language, setLanguage] = useState<Language>("en");
 
   const activeChild = childAccounts.find((child) => child.id === activeChildId) ?? null;
   const completedCount = missionItems.filter((mission) => mission.status === "done").length;
   const todayEnergy = missionItems.reduce((sum, mission) => sum + (mission.status === "done" ? mission.energy : 0), 0);
+  const clearMissionState = useCallback(() => {
+    setMissionItems([]);
+    setMissionCache([]);
+  }, []);
+  const mergeMissionCache = useCallback((missions: Mission[]) => {
+    setMissionCache((current) => mergeMissions(missions, current));
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -244,7 +258,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setSessionToken(family.token);
           setChildAccounts((current) => mergeChildren(family.children, current));
           setActiveChildId(null);
-          setMissionItems([]);
+          clearMissionState();
           await saveParentSession({ token: family.token, family: familySummary(family), parent: family.parent, children: family.children });
           return { hasChildren: family.children.length > 0 };
         } catch {
@@ -261,7 +275,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setFamily(familySummary(family));
           setSessionToken(family.token);
           setActiveChildId(null);
-          setMissionItems([]);
+          clearMissionState();
           setChildAccounts(family.children);
 
           await saveParentSession({ token: family.token, family: familySummary(family), parent: storedParent, children: family.children });
@@ -272,7 +286,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setSessionToken("local-parent-password-session");
           setChildAccounts([]);
           setActiveChildId(null);
-          setMissionItems([]);
+          clearMissionState();
           await saveParentSession({ token: "local-parent-password-session", family: nextFamily, parent: nextParent, children: [] });
         }
       },
@@ -311,7 +325,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setFamily(familySummary(family));
           setSessionToken(family.token);
           setActiveChildId(null);
-          setMissionItems([]);
+          clearMissionState();
 
           if (family.children.length > 0) {
             setChildAccounts((current) => mergeChildren(family.children, current));
@@ -324,7 +338,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setFamily(nextFamily);
           setSessionToken("local-google-parent-session");
           setActiveChildId(null);
-          setMissionItems([]);
+          clearMissionState();
           await saveParentSession({ token: "local-google-parent-session", family: nextFamily, parent: nextParent, children: childAccounts });
         }
       },
@@ -339,7 +353,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setFamily(familySummary(family));
           setSessionToken(family.token);
           setActiveChildId(null);
-          setMissionItems([]);
+          clearMissionState();
 
           if (family.children.length > 0) {
             setChildAccounts((current) => mergeChildren(family.children, current));
@@ -353,7 +367,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setFamily(nextFamily);
           setSessionToken("local-apple-parent-session");
           setActiveChildId(null);
-          setMissionItems([]);
+          clearMissionState();
           await saveParentSession({ token: "local-apple-parent-session", family: nextFamily, parent: nextParent, children: childAccounts });
           return { hasChildren: childAccounts.length > 0 };
         }
@@ -429,10 +443,8 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           setChildAccounts((current) => mergeChildren([storedChild], current));
           setActiveChildId(storedChild.id);
           const missions = await fetchToday(storedChild.id);
-
-          if (missions.length > 0) {
-            setMissionItems(missions);
-          }
+          setMissionItems(missions);
+          setMissionCache(missions);
 
           return true;
         } catch {
@@ -453,7 +465,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
         setSessionToken(null);
         setChildAccounts([]);
         setActiveChildId(null);
-        setMissionItems([]);
+        clearMissionState();
         return deleteSessionValue();
       },
       addMission: async (draft) => {
@@ -526,7 +538,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           throw error;
         }
       },
-      updateMission: async (missionId, draft) => {
+      updateMission: async (missionId, draft, options) => {
         const currentMission = missionItems.find((mission) => mission.id === missionId);
 
         if (!currentMission) {
@@ -550,7 +562,8 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
         try {
           const storedMission = await updateMissionApi(
             missionId,
-            toMissionPayload(activeChild?.id ?? childAccounts[0]?.id ?? "caitlyn", nextMission)
+            toMissionPayload(activeChild?.id ?? childAccounts[0]?.id ?? "caitlyn", nextMission, options?.updateScope),
+            options?.updateScope
           );
           setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
         } catch {
@@ -612,6 +625,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
       },
       completeMission: async (missionId, evidence) => {
         const currentMission = missionItems.find((mission) => mission.id === missionId);
+        const completionNote = evidence?.note?.trim();
         const completedMission = currentMission
           ? {
               ...currentMission,
@@ -622,6 +636,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
                 audioUri: evidence?.audioUri ?? currentMission.completionRecord?.audioUri,
                 completedAt: evidence?.endedAt ?? new Date().toISOString(),
                 endedAt: evidence?.endedAt ?? new Date().toISOString(),
+                note: evidence?.note ?? currentMission.completionRecord?.note,
                 parentConfirmed: true,
                 photoUri: evidence?.photoUri ?? currentMission.completionRecord?.photoUri,
                 startedAt: evidence?.startedAt ?? currentMission.completionRecord?.startedAt
@@ -652,8 +667,9 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
                     eventRecords: [
                       ...completedMission.eventRecords,
                       taskEvent(missionId, "status_change", "Status changed", "Status changed to done.", { to: "done" }),
-                      taskEvent(missionId, "completion", "Task completed", `Task "${completedMission.title}" was completed.`, {
-                        actualMinutes: evidence?.actualMinutes ?? null
+                      taskEvent(missionId, "completion", "Task completed", completionNote || `Task "${completedMission.title}" was completed.`, {
+                        actualMinutes: evidence?.actualMinutes ?? null,
+                        note: completionNote ?? null
                       })
                     ]
                   }
@@ -683,10 +699,55 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
           throw error;
         }
       },
+      updateCompletionNote: async (missionId, note) => {
+        const normalizedNote = note.trim();
+        setMissionItems((current) =>
+          current.map((mission) =>
+            mission.id === missionId
+              ? {
+                  ...mission,
+                  completionRecord: mission.completionRecord
+                    ? {
+                        ...mission.completionRecord,
+                        note: normalizedNote || undefined
+                      }
+                    : mission.completionRecord,
+                  eventRecords: [
+                    ...mission.eventRecords,
+                    taskEvent(missionId, "completion_note", "Completion note updated", normalizedNote || "Completion note cleared.", {
+                      note: normalizedNote || null
+                    })
+                  ]
+                }
+              : mission
+          )
+        );
+
+        try {
+          const storedMission = await updateCompletionNoteApi(missionId, normalizedNote);
+          setMissionItems((current) => current.map((mission) => (mission.id === missionId ? storedMission : mission)));
+        } catch (error) {
+          console.warn("[KoalaStore] update completion note failed", error);
+          throw error;
+        }
+      },
+      refreshToday: async (date) => {
+        const childId = activeChild?.id ?? childAccounts[0]?.id;
+
+        if (!childId) {
+          return;
+        }
+
+        const targetDate = date ?? new Date().toISOString().slice(0, 10);
+        const missions = await fetchMissions(childId, targetDate, targetDate);
+        setMissionItems(missions);
+        setMissionCache((current) => mergeMissions(missions, current));
+      },
       getMission: (id) => {
         const missionId = Array.isArray(id) ? id[0] : id;
-        return missionItems.find((mission) => mission.id === missionId);
+        return missionItems.find((mission) => mission.id === missionId) ?? missionCache.find((mission) => mission.id === missionId);
       },
+      mergeMissions: mergeMissionCache,
       recordMissionTimerEvent: async (missionId, payload) => {
         const recordedAt = new Date().toISOString();
         setMissionItems((current) =>
@@ -883,7 +944,7 @@ export function KoalaStoreProvider({ children }: PropsWithChildren) {
       setLanguage,
       t: (key) => translate(language, key)
     }),
-    [activeChild, childAccounts, completedCount, family, isSessionReady, language, missionItems, parent, sessionToken, todayEnergy]
+    [activeChild, childAccounts, clearMissionState, completedCount, family, isSessionReady, language, mergeMissionCache, missionCache, missionItems, parent, sessionToken, todayEnergy]
   );
 
   return <KoalaContext.Provider value={value}>{children}</KoalaContext.Provider>;
@@ -952,6 +1013,20 @@ function replaceOptimisticChild(current: ChildAccount[], optimisticId: string, s
   const next = current.filter((child) => child.id !== optimisticId && child.id !== storedChild.id);
 
   return mergeChildren([storedChild], next);
+}
+
+function mergeMissions(incoming: Mission[], current: Mission[]) {
+  const byId = new Map<string, Mission>();
+
+  current.forEach((mission) => {
+    byId.set(mission.id, mission);
+  });
+
+  incoming.forEach((mission) => {
+    byId.set(mission.id, mission);
+  });
+
+  return Array.from(byId.values());
 }
 
 function uniqueChildId(name: string, existing: ChildAccount[]) {

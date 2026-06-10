@@ -601,6 +601,13 @@ p {
   margin-top: 6px;
 }
 
+.fieldHint {
+  color: #657365;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
 .taskKindSwitch {
   width: fit-content;
   max-width: 100%;
@@ -653,6 +660,11 @@ p {
 .secondary {
   background: #eef3ea;
   color: #3f7d58;
+}
+
+.successAction {
+  background: #3f7d58;
+  color: #ffffff;
 }
 
 .danger {
@@ -815,6 +827,15 @@ p {
   resize: vertical;
 }
 
+.completionConfirmDialog {
+  width: min(640px, 100%);
+}
+
+.completionNoteTextarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
 .fieldHeader {
   display: flex;
   align-items: center;
@@ -968,6 +989,11 @@ p {
   color: #a0473d;
 }
 
+.status.cancelled {
+  background: #ece7df;
+  color: #74665a;
+}
+
 .templateDetail {
   display: grid;
   gap: 18px;
@@ -1001,6 +1027,31 @@ p {
   padding-bottom: 14px;
 }
 
+.detailTabs {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  gap: 4px;
+  border: 1px solid #ded3c1;
+  border-radius: 999px;
+  background: #f8f1e7;
+  padding: 4px;
+}
+
+.detailTabs button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #6f665a;
+  min-height: 34px;
+  padding: 0 14px;
+}
+
+.detailTabs button.active {
+  background: #23433a;
+  color: #ffffff;
+}
+
 .timedTaskControl {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1029,6 +1080,171 @@ p {
 .timedTaskControl span {
   color: #6f665a;
   font-weight: 800;
+}
+
+.executionSummary {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #d7e1d0;
+  border-radius: 8px;
+  background: #f8fbf6;
+  padding: 14px;
+}
+
+.executionSummaryHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.executionSummaryHead h3,
+.executionSummaryHead p {
+  margin: 0;
+}
+
+.executionSummaryHead p {
+  color: #657365;
+  font-weight: 900;
+  margin-top: 4px;
+}
+
+.timerExecutionCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  border: 1px solid #d9cbb8;
+  border-radius: 8px;
+  background: #fffdf8;
+  padding: 14px 16px;
+}
+
+.timerExecutionCard div {
+  display: grid;
+  gap: 4px;
+}
+
+.timerExecutionCard span {
+  color: #6f665a;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.timerExecutionCard strong {
+  color: #5774ad;
+  font-size: 54px;
+  line-height: 0.95;
+  font-weight: 900;
+}
+
+.timerExecutionCard p {
+  color: #657365;
+  font-size: 13px;
+  font-weight: 900;
+  margin: 0;
+}
+
+.completionNoteCard {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #d9cbb8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px 14px;
+}
+
+.completionNoteCard span {
+  color: #6f665a;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.completionNoteCard p {
+  color: #23433a;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.executionGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.executionGrid div {
+  border: 1px solid #e2dacd;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.executionGrid dt {
+  color: #6f665a;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.executionGrid dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 5px 0 0;
+  color: #23433a;
+  font-weight: 900;
+}
+
+.executionGrid a {
+  color: #3f7d58;
+}
+
+.activeRunSummary {
+  display: grid;
+  gap: 4px;
+  border-radius: 8px;
+  background: #eef3ea;
+  padding: 10px;
+}
+
+.activeRunSummary span {
+  color: #657365;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.executionLog {
+  display: grid;
+  gap: 8px;
+}
+
+.executionLog h4,
+.executionLog p {
+  margin: 0;
+}
+
+.executionLog article {
+  display: grid;
+  gap: 3px;
+  border-left: 3px solid #d7e1d0;
+  padding-left: 10px;
+}
+
+.executionLog span {
+  color: #74665a;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.executionLog p {
+  color: #4f5f53;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .taskDetail h3 {

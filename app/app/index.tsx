@@ -1,6 +1,6 @@
 import { Link, Redirect, router } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, Image, LayoutAnimation, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Animated, AppState, Image, LayoutAnimation, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { fetchMissions, uploadMissionFileApi } from "../data/api";
 import { childProfile, Mission } from "../data/demo";
 import { profileForChild, useKoalaStore } from "../data/store";
@@ -22,21 +22,38 @@ const layoutAnimationConfig = {
   update: { type: LayoutAnimation.Types.easeInEaseOut }
 };
 const columnSwitchThreshold = 44;
+const verticalDragStep = 122;
 const horizontalDragPreviewMax = 520;
 const horizontalDragPreviewRatio = 1;
+const defaultPrimaryTaskOrder = [
+  "跑步和晨练",
+  "新加坡数学",
+  "排球基础练习",
+  "中文认读和字帖",
+  "体能和基本功练习",
+  "户外活动",
+  "iReady阅读和读后感日记"
+];
 
 export default function HomeScreen() {
-  const { activeChild, children, completedCount, isSessionReady, language, missions, parent, setLanguage, t, todayEnergy, updateChild, updateMissionLayout } = useKoalaStore();
+  const { activeChild, children, completedCount, isSessionReady, language, mergeMissions, missions, parent, refreshToday, setLanguage, t, todayEnergy, updateChild, updateMissionLayout } = useKoalaStore();
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>("day");
+  const [currentDate, setCurrentDate] = useState(todayKey);
   const [calendarMissions, setCalendarMissions] = useState<Mission[]>([]);
   const [isCalendarLoading, setIsCalendarLoading] = useState(false);
   const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
   const profile = profileForChild(activeChild);
-  const totalTasks = missions.length;
-  const today = useMemo(() => todayKey(), []);
-  const todayTitleDate = useMemo(() => formatShortDate(today), [today]);
-  const calendarDays = useMemo(() => weekDaysForDate(new Date()), []);
-  const scheduleMissions = taskViewMode === "day" ? missions : calendarMissions;
+  const todayTitleDate = useMemo(() => formatShortDate(currentDate), [currentDate]);
+  const todayMissions = useMemo(() => missions.filter((mission) => mission.occurrenceDate.slice(0, 10) === currentDate), [currentDate, missions]);
+  const totalTasks = todayMissions.length;
+  const calendarDays = useMemo(() => weekDaysForDate(dateFromKey(currentDate)), [currentDate]);
+  const scheduleMissions = taskViewMode === "day" ? todayMissions : calendarMissions;
+  const goToday = useCallback(() => {
+    const nextDate = todayKey();
+    setCurrentDate(nextDate);
+    setTaskViewMode("day");
+    void refreshToday(nextDate).catch(() => undefined);
+  }, [refreshToday]);
 
   useEffect(() => {
     let isMounted = true;
@@ -59,6 +76,7 @@ export default function HomeScreen() {
 
         if (isMounted) {
           setCalendarMissions(nextMissions);
+          mergeMissions(nextMissions);
         }
       } catch {
         if (isMounted) {
@@ -76,7 +94,36 @@ export default function HomeScreen() {
     return () => {
       isMounted = false;
     };
-  }, [activeChild, calendarDays, taskViewMode]);
+  }, [activeChild, calendarDays, mergeMissions, taskViewMode]);
+
+  useEffect(() => {
+    function refreshCurrentDay() {
+      const nextDate = todayKey();
+
+      if (nextDate !== currentDate) {
+        setCurrentDate(nextDate);
+        setTaskViewMode("day");
+      }
+
+      void refreshToday(nextDate).catch(() => undefined);
+    }
+
+    if (!activeChild) {
+      return;
+    }
+
+    const intervalId = setInterval(refreshCurrentDay, 30 * 1000);
+    const appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        refreshCurrentDay();
+      }
+    });
+
+    return () => {
+      clearInterval(intervalId);
+      appStateSubscription.remove();
+    };
+  }, [activeChild, currentDate, refreshToday]);
 
   if (!isSessionReady) {
     return (
@@ -167,6 +214,9 @@ export default function HomeScreen() {
                 <TaskViewSwitch value={taskViewMode} onChange={setTaskViewMode} t={t} />
               </View>
               <View style={styles.panelActions}>
+                <Pressable style={styles.smallLink} onPress={goToday}>
+                  <Text style={styles.smallLinkText}>{t("today")}</Text>
+                </Pressable>
                 <Link href="/history" style={styles.smallLink}>
                   <Text style={styles.smallLinkText}>{t("history")}</Text>
                 </Link>
@@ -177,7 +227,7 @@ export default function HomeScreen() {
               isLoading={isCalendarLoading}
               missions={scheduleMissions}
               t={t}
-              today={today}
+              today={currentDate}
               onSaveMissionLayout={updateMissionLayout}
               viewMode={taskViewMode}
             />
@@ -398,7 +448,7 @@ function TaskSchedule({
   const [dayColumns, setDayColumns] = useState<DayMissionColumns>(() => splitDayMissions(missions));
   const [isReordering, setIsReordering] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const dragStepRef = useRef({ y: 0 });
+  const dragStepRef = useRef(0);
   const suppressNextSaveRef = useRef(false);
 
   useEffect(() => {
@@ -407,42 +457,50 @@ function TaskSchedule({
     }
   }, [isReordering, missions]);
 
-  function enterReorderMode(missionId: string) {
+  const enterReorderMode = useCallback((missionId: string) => {
     setIsReordering(true);
     setDraggingId(null);
-  }
+  }, []);
 
-  function startDrag(missionId: string) {
-    dragStepRef.current = { y: 0 };
+  const startDrag = useCallback((missionId: string) => {
+    dragStepRef.current = 0;
     suppressNextSaveRef.current = true;
     setDraggingId(missionId);
-  }
+  }, []);
 
-  function moveDrag(missionId: string, dy: number) {
-    const nextStep = {
-      y: Math.trunc(dy / 72)
-    };
+  const moveDrag = useCallback((missionId: string, verticalStep: number) => {
     const previousStep = dragStepRef.current;
 
-    if (nextStep.y === previousStep.y) {
+    if (verticalStep === previousStep) {
       return;
     }
 
-    dragStepRef.current = nextStep;
+    dragStepRef.current = verticalStep;
     LayoutAnimation.configureNext(layoutAnimationConfig);
-    setDayColumns((current) => moveMissionVertically(current, missionId, nextStep.y - previousStep.y));
-  }
+    setDayColumns((current) => moveMissionVertically(current, missionId, verticalStep - previousStep));
+  }, []);
 
-  function endDrag(missionId?: string, dx = 0) {
-    setDraggingId(null);
-    dragStepRef.current = { y: 0 };
+  const endDrag = useCallback((missionId?: string, dx = 0) => {
+    dragStepRef.current = 0;
+
+    if (!missionId) {
+      setDraggingId(null);
+      return;
+    }
+
     if (missionId && Math.abs(dx) > columnSwitchThreshold) {
+      LayoutAnimation.configureNext(layoutAnimationConfig);
       setDayColumns((current) => moveMissionToColumn(current, missionId, dx > 0 ? "secondary" : "primary"));
     }
+
     setTimeout(() => {
       suppressNextSaveRef.current = false;
     }, 200);
-  }
+  }, []);
+
+  const settleDrag = useCallback(() => {
+    setDraggingId(null);
+  }, []);
 
   async function saveLayout() {
     if (!isReordering) {
@@ -480,7 +538,7 @@ function TaskSchedule({
 
   if (viewMode === "week") {
     return (
-      <ScrollView style={styles.scheduleScroll} contentContainerStyle={styles.scheduleScrollContent}>
+      <ScrollView style={styles.scheduleScroll} contentContainerStyle={styles.weekScheduleScrollContent}>
         <View style={styles.weekBoard}>
           {calendarDays.map((day) => {
             const dayMissions = missionsForDate(missions, day.key);
@@ -489,11 +547,13 @@ function TaskSchedule({
               <View key={day.key} style={StyleSheet.flatten([styles.weekColumn, day.key === today && styles.weekColumnToday])}>
                 <Text style={styles.weekDay}>{day.label}</Text>
                 <Text style={styles.weekMeta}>{day.dayNumber} · {done}/{dayMissions.length}</Text>
-                {dayMissions.slice(0, 5).map((mission) => (
-                  <View key={mission.id} style={styles.weekTaskPill}>
-                    <Text style={styles.weekTaskIcon}>{mission.icon}</Text>
-                    <Text numberOfLines={1} style={styles.weekTaskText}>{mission.title}</Text>
-                  </View>
+                {dayMissions.map((mission) => (
+                  <Link key={mission.id} href={`/mission/${mission.id}`} asChild>
+                    <Pressable style={styles.weekTaskPill}>
+                      <Text style={styles.weekTaskIcon}>{mission.icon}</Text>
+                      <Text numberOfLines={1} style={styles.weekTaskText}>{mission.title}</Text>
+                    </Pressable>
+                  </Link>
                 ))}
               </View>
             );
@@ -517,6 +577,7 @@ function TaskSchedule({
                 t={t}
                 onDragEnd={endDrag}
                 onDragMove={moveDrag}
+                onDragSettle={settleDrag}
                 onDragStart={startDrag}
                 onEnterReorder={enterReorderMode}
               />
@@ -533,6 +594,7 @@ function TaskSchedule({
                 t={t}
                 onDragEnd={endDrag}
                 onDragMove={moveDrag}
+                onDragSettle={settleDrag}
                 onDragStart={startDrag}
                 onEnterReorder={enterReorderMode}
               />
@@ -544,12 +606,13 @@ function TaskSchedule({
   );
 }
 
-function MissionCard({
+const MissionCard = memo(function MissionCard({
   isDragging = false,
   isReordering = false,
   mission,
   onDragEnd,
   onDragMove,
+  onDragSettle,
   onDragStart,
   onEnterReorder,
   t
@@ -558,7 +621,8 @@ function MissionCard({
   isReordering?: boolean;
   mission: Mission;
   onDragEnd?: (missionId: string, dx: number) => void;
-  onDragMove?: (missionId: string, dy: number) => void;
+  onDragMove?: (missionId: string, verticalStep: number) => void;
+  onDragSettle?: () => void;
   onDragStart?: (missionId: string) => void;
   onEnterReorder?: (missionId: string) => void;
   t: (key: string) => string;
@@ -591,26 +655,28 @@ function MissionCard({
           onDragStart?.(mission.id);
         },
         onPanResponderMove: (_, gestureState) => {
-          setIsColumnSwitchReady(Math.abs(gestureState.dx) > columnSwitchThreshold);
+          const nextColumnSwitchReady = Math.abs(gestureState.dx) > columnSwitchThreshold;
+          const verticalStep = Math.round(gestureState.dy / verticalDragStep);
+          setIsColumnSwitchReady((current) => (current === nextColumnSwitchReady ? current : nextColumnSwitchReady));
           dragOffset.setValue({ x: gestureState.dx, y: gestureState.dy });
           dragPreviewOffset.setValue({
             x: dampHorizontalDrag(gestureState.dx),
-            y: gestureState.dy
+            y: gestureState.dy - verticalStep * verticalDragStep
           });
-          onDragMove?.(mission.id, gestureState.dy);
+          onDragMove?.(mission.id, verticalStep);
         },
         onPanResponderRelease: (_, gestureState) => {
           setIsColumnSwitchReady(false);
-          resetDragPreview(dragOffset, dragPreviewOffset);
           onDragEnd?.(mission.id, gestureState.dx);
+          resetDragPreview(dragOffset, dragPreviewOffset, onDragSettle);
         },
         onPanResponderTerminate: (_, gestureState) => {
           setIsColumnSwitchReady(false);
-          resetDragPreview(dragOffset, dragPreviewOffset);
           onDragEnd?.(mission.id, gestureState.dx);
+          resetDragPreview(dragOffset, dragPreviewOffset, onDragSettle);
         }
       }),
-    [dragOffset, dragPreviewOffset, mission.id, onDragEnd, onDragMove, onDragStart, onEnterReorder]
+    [dragOffset, dragPreviewOffset, mission.id, onDragEnd, onDragMove, onDragSettle, onDragStart, onEnterReorder]
   );
 
   const card = (
@@ -646,7 +712,9 @@ function MissionCard({
           </View>
         </View>
         <View style={styles.missionProgressRow}>
-          {missionKind === "schedule" ? (
+          {secondGoalText(mission) ? (
+            <Text numberOfLines={1} style={styles.actionHint}>{secondGoalText(mission)}</Text>
+          ) : missionKind === "schedule" ? (
             <Text numberOfLines={1} style={styles.actionHint}>Done · Cancel · Edit</Text>
           ) : missionKind === "timed" ? (
             <Text numberOfLines={1} style={styles.actionHint}>{timedActionText(mission)}</Text>
@@ -683,7 +751,7 @@ function MissionCard({
       {card}
     </Link>
   );
-}
+});
 
 function splitDayMissions(missions: Mission[]) {
   const placedMissions = missions.filter((mission) => mission.layoutColumn);
@@ -704,7 +772,7 @@ function dampHorizontalDrag(dx: number) {
   return direction * Math.min(Math.abs(dx) * horizontalDragPreviewRatio, horizontalDragPreviewMax);
 }
 
-function resetDragPreview(offset: Animated.ValueXY, previewOffset: Animated.ValueXY) {
+function resetDragPreview(offset: Animated.ValueXY, previewOffset: Animated.ValueXY, onComplete?: () => void) {
   Animated.parallel([
     Animated.spring(offset, {
       friction: 7,
@@ -718,12 +786,18 @@ function resetDragPreview(offset: Animated.ValueXY, previewOffset: Animated.Valu
       toValue: { x: 0, y: 0 },
       useNativeDriver: true
     })
-  ]).start();
+  ]).start(({ finished }) => {
+    if (finished) {
+      onComplete?.();
+    }
+  });
 }
 
 function splitDefaultDayMissions(missions: Mission[]) {
-  const primary = missions.filter(isTimeSensitiveMission);
-  const secondary = missions.filter((mission) => !isTimeSensitiveMission(mission));
+  const primary = missions
+    .filter(isDefaultPrimaryMission)
+    .sort((left, right) => defaultPrimaryMissionOrder(left) - defaultPrimaryMissionOrder(right));
+  const secondary = missions.filter((mission) => !isDefaultPrimaryMission(mission));
 
   if (primary.length === 0 || secondary.length === 0) {
     return {
@@ -733,6 +807,21 @@ function splitDefaultDayMissions(missions: Mission[]) {
   }
 
   return { primary, secondary };
+}
+
+function isDefaultPrimaryMission(mission: Mission) {
+  return defaultPrimaryMissionOrder(mission) !== Number.MAX_SAFE_INTEGER;
+}
+
+function defaultPrimaryMissionOrder(mission: Mission) {
+  const normalizedTitle = normalizeMissionTitle(mission.title);
+  const index = defaultPrimaryTaskOrder.findIndex((title) => normalizeMissionTitle(title) === normalizedTitle);
+
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
+function normalizeMissionTitle(value: string) {
+  return value.replace(/\s+/g, "").toLowerCase();
 }
 
 function sortPlacedMissions(missions: Mission[]) {
@@ -760,11 +849,7 @@ function findMissionPosition(columns: DayMissionColumns, missionId: string) {
   return null;
 }
 
-function moveMissionVertically(
-  columns: DayMissionColumns,
-  missionId: string,
-  verticalStep: number
-) {
+function moveMissionVertically(columns: DayMissionColumns, missionId: string, verticalStep: number) {
   const mission = columns.primary.concat(columns.secondary).find((item) => item.id === missionId);
   const currentPosition = findMissionPosition(columns, missionId);
 
@@ -846,6 +931,12 @@ function kindForMission(mission: Mission) {
 }
 
 function missionDetailText(mission: Mission) {
+  const primaryGoal = firstGoalText(mission);
+
+  if (primaryGoal) {
+    return primaryGoal;
+  }
+
   const kind = kindForMission(mission);
 
   if (kind === "schedule") {
@@ -857,6 +948,26 @@ function missionDetailText(mission: Mission) {
   }
 
   return mission.target;
+}
+
+function firstGoalText(mission: Mission) {
+  return cleanGoalLines(mission)[0];
+}
+
+function secondGoalText(mission: Mission) {
+  return cleanGoalLines(mission)[1];
+}
+
+function cleanGoalLines(mission: Mission) {
+  return mission.goals
+    .map((goal) => goal.trim())
+    .filter(Boolean)
+    .filter((goal, index, goals) => goals.findIndex((item) => normalizeGoalText(item) === normalizeGoalText(goal)) === index)
+    .slice(0, 2);
+}
+
+function normalizeGoalText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function timedActionText(mission: Mission) {
@@ -889,8 +1000,8 @@ function missionsForDate(missions: Mission[], dateKey: string) {
 function weekDaysForDate(date: Date): CalendarDay[] {
   const monday = new Date(date);
   const day = monday.getDay();
-  const daysUntilNextMonday = ((8 - day) % 7) || 7;
-  monday.setDate(monday.getDate() + daysUntilNextMonday);
+  const daysSinceMonday = (day + 6) % 7;
+  monday.setDate(monday.getDate() - daysSinceMonday);
 
   return weekDays.map((label, index) => {
     const nextDate = new Date(monday);
@@ -906,6 +1017,11 @@ function weekDaysForDate(date: Date): CalendarDay[] {
 
 function todayKey() {
   return dateKey(new Date());
+}
+
+function dateFromKey(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
 }
 
 function formatShortDate(dateKeyValue: string) {
@@ -1353,19 +1469,27 @@ const styles = StyleSheet.create({
     minHeight: 0
   },
   scheduleScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 2
+  },
+  weekScheduleScrollContent: {
+    flexGrow: 1,
     paddingBottom: 2
   },
   dayBoard: {
+    flex: 1,
     flexDirection: "row",
     gap: 12,
-    alignItems: "flex-start"
+    alignItems: "stretch"
   },
   dayBoardTapTarget: {
+    flexGrow: 1,
     minHeight: "100%"
   },
   dayColumn: {
     flex: 1,
     minWidth: 0,
+    minHeight: "100%",
     overflow: "visible"
   },
   dayColumnDivider: {
@@ -1543,6 +1667,7 @@ const styles = StyleSheet.create({
     marginTop: 6
   },
   weekBoard: {
+    flex: 1,
     flexDirection: "row",
     gap: 10,
     paddingBottom: 4
@@ -1550,7 +1675,7 @@ const styles = StyleSheet.create({
   weekColumn: {
     flex: 1,
     minWidth: 0,
-    minHeight: 260,
+    minHeight: 0,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#E7DED0",
@@ -1571,10 +1696,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
     marginTop: 2,
-    marginBottom: 10
+    marginBottom: 8
   },
   weekTaskPill: {
-    minHeight: 36,
+    minHeight: 30,
     borderRadius: 8,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
@@ -1582,16 +1707,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 8,
-    marginBottom: 8
+    paddingHorizontal: 7,
+    marginBottom: 6
   },
   weekTaskIcon: {
-    fontSize: 16
+    fontSize: 14
   },
   weekTaskText: {
     flex: 1,
     color: palette.ink,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900"
   },
   bigCompanion: {

@@ -16,6 +16,13 @@
 		A84FD16E41BF53A400C69D22 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A97856D4A55D12AC3140F347 /* ExpoModulesProvider.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		CC45E9C84DD64CC489B17D1B /* KoalaTimerLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF5F9C82B5E408EA4461196 /* KoalaTimerLiveActivityAttributes.swift */; };
+		E90D7BB851604FE791357A5D /* KoalaLiveActivityModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41DC5B9998F046278EE46E98 /* KoalaLiveActivityModule.swift */; };
+		192D703192184269A9726039 /* KoalaLiveActivityModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 96FB55D1C01E4DA4989D25CF /* KoalaLiveActivityModule.m */; };
+		6209BB7C69064DBF99F7107E /* KoalaTimerLiveActivity.appex in Copy Files */ = {isa = PBXBuildFile; fileRef = 1CED1BBDF67D46A6B4CB8A42 /* KoalaTimerLiveActivity.appex */; };
+		6EE9804015F44A08B99F9D5B /* KoalaTimerLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 939E17C97FD24A80BEC27677 /* KoalaTimerLiveActivityBundle.swift */; };
+		8BDC397ACC4144D3935F89D5 /* KoalaTimerLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCEF3701E5614338A0174C83 /* KoalaTimerLiveActivity.swift */; };
+		E3ED1284F3906F818849C796 /* KoalaTimerLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF5F9C82B5E408EA4461196 /* KoalaTimerLiveActivityAttributes.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +41,14 @@
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = KoalaHabit/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* KoalaHabit-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "KoalaHabit-Bridging-Header.h"; path = "KoalaHabit/KoalaHabit-Bridging-Header.h"; sourceTree = "<group>"; };
 		FE627A80180108DAFA6A121A /* libPods-KoalaHabit.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-KoalaHabit.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2EF5F9C82B5E408EA4461196 /* KoalaTimerLiveActivityAttributes.swift */ = {isa = PBXFileReference; name = "KoalaTimerLiveActivityAttributes.swift"; path = "KoalaHabit/KoalaTimerLiveActivityAttributes.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; explicitFileType = undefined; includeInIndex = 0; };
+		41DC5B9998F046278EE46E98 /* KoalaLiveActivityModule.swift */ = {isa = PBXFileReference; name = "KoalaLiveActivityModule.swift"; path = "KoalaHabit/KoalaLiveActivityModule.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; explicitFileType = undefined; includeInIndex = 0; };
+		96FB55D1C01E4DA4989D25CF /* KoalaLiveActivityModule.m */ = {isa = PBXFileReference; name = "KoalaLiveActivityModule.m"; path = "KoalaHabit/KoalaLiveActivityModule.m"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; explicitFileType = undefined; includeInIndex = 0; };
+		1CED1BBDF67D46A6B4CB8A42 /* KoalaTimerLiveActivity.appex */ = {isa = PBXFileReference; name = "KoalaTimerLiveActivity.appex"; path = "KoalaTimerLiveActivity.appex"; sourceTree = BUILT_PRODUCTS_DIR; fileEncoding = undefined; lastKnownFileType = undefined; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; };
+		939E17C97FD24A80BEC27677 /* KoalaTimerLiveActivityBundle.swift */ = {isa = PBXFileReference; name = "KoalaTimerLiveActivityBundle.swift"; path = KoalaTimerLiveActivityBundle.swift; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; explicitFileType = undefined; includeInIndex = 0; };
+		DCEF3701E5614338A0174C83 /* KoalaTimerLiveActivity.swift */ = {isa = PBXFileReference; name = "KoalaTimerLiveActivity.swift"; path = KoalaTimerLiveActivity.swift; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; explicitFileType = undefined; includeInIndex = 0; };
+		FD57CED63268447FA15A86EB /* Info.plist */ = {isa = PBXFileReference; name = "Info.plist"; path = Info.plist; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = text.plist.xml; explicitFileType = undefined; includeInIndex = 0; };
+		065EAE842677473D9EF8FD21 /* KoalaTimerLiveActivity.entitlements */ = {isa = PBXFileReference; name = "KoalaTimerLiveActivity.entitlements"; path = KoalaTimerLiveActivity.entitlements; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -60,6 +75,9 @@
 				2AD02FFCBD43BA02E7C617CD /* PrivacyInfo.xcprivacy */,
 				5CC2C0A65FAF4E7D91F186AF /* timer-alert.wav */,
 				E4839754964C442F8D29C2A5 /* task-time-up.wav */,
+				2EF5F9C82B5E408EA4461196 /* KoalaTimerLiveActivityAttributes.swift */,
+				41DC5B9998F046278EE46E98 /* KoalaLiveActivityModule.swift */,
+				96FB55D1C01E4DA4989D25CF /* KoalaLiveActivityModule.m */,
 			);
 			name = KoalaHabit;
 			sourceTree = "<group>";
@@ -114,6 +132,7 @@
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				8015D723D4A1C647BF08FFA9 /* Pods */,
 				51BB3026FAF67734B48411BE /* ExpoModulesProviders */,
+				43F93CF4CF304A70A06932C9 /* KoalaTimerLiveActivity */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -124,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* KoalaHabit.app */,
+				1CED1BBDF67D46A6B4CB8A42 /* KoalaTimerLiveActivity.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -135,6 +155,18 @@
 			);
 			name = Supporting;
 			path = KoalaHabit/Supporting;
+			sourceTree = "<group>";
+		};
+		43F93CF4CF304A70A06932C9 /* KoalaTimerLiveActivity */ = {
+			isa = PBXGroup;
+			children = (
+				939E17C97FD24A80BEC27677 /* KoalaTimerLiveActivityBundle.swift */,
+				DCEF3701E5614338A0174C83 /* KoalaTimerLiveActivity.swift */,
+				FD57CED63268447FA15A86EB /* Info.plist */,
+				065EAE842677473D9EF8FD21 /* KoalaTimerLiveActivity.entitlements */,
+			);
+			name = KoalaTimerLiveActivity;
+			path = KoalaTimerLiveActivity;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -152,6 +184,7 @@
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				AD8C6C23541DB86D4DE04A75 /* [CP] Embed Pods Frameworks */,
+				F5121AB3273F4AD0A456F909 /* Copy Files */,
 			);
 			buildRules = (
 			);
@@ -161,6 +194,21 @@
 			productName = KoalaHabit;
 			productReference = 13B07F961A680F5B00A75B9A /* KoalaHabit.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A83A5312BAC445EF9859E543 /* "KoalaTimerLiveActivity" */ = {
+			isa = PBXNativeTarget;
+			name = "KoalaTimerLiveActivity";
+			productName = "KoalaTimerLiveActivity";
+			productReference = 1CED1BBDF67D46A6B4CB8A42;
+			productType = "com.apple.product-type.app-extension";
+			buildConfigurationList = A377AE02A4A0491F8C9B7C1D;
+			buildPhases = (
+				62E8998E590B25264904721B /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
 		};
 /* End PBXNativeTarget section */
 
@@ -189,6 +237,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* KoalaHabit */,
+				A83A5312BAC445EF9859E543 /* "KoalaTimerLiveActivity" */,
 			);
 		};
 /* End PBXProject section */
@@ -342,6 +391,19 @@
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				A84FD16E41BF53A400C69D22 /* ExpoModulesProvider.swift in Sources */,
+				CC45E9C84DD64CC489B17D1B /* KoalaTimerLiveActivityAttributes.swift in Sources */,
+				E90D7BB851604FE791357A5D /* KoalaLiveActivityModule.swift in Sources */,
+				192D703192184269A9726039 /* KoalaLiveActivityModule.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		62E8998E590B25264904721B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6EE9804015F44A08B99F9D5B /* KoalaTimerLiveActivityBundle.swift in Sources */,
+				8BDC397ACC4144D3935F89D5 /* KoalaTimerLiveActivity.swift in Sources */,
+				E3ED1284F3906F818849C796 /* KoalaTimerLiveActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -538,6 +600,48 @@
 			};
 			name = Release;
 		};
+		F296AD51CFDB4462A508006D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				CODE_SIGN_ENTITLEMENTS = KoalaTimerLiveActivity/KoalaTimerLiveActivity.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2PQPJB9568;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = KoalaTimerLiveActivity/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.globjoy.koalahabit.liveactivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A0F5B410D2BA4C95A0460E08 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = KoalaTimerLiveActivity/KoalaTimerLiveActivity.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2PQPJB9568;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = KoalaTimerLiveActivity/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.globjoy.koalahabit.liveactivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -559,7 +663,30 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A377AE02A4A0491F8C9B7C1D /* Build configuration list for PBXNativeTarget "KoalaTimerLiveActivity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F296AD51CFDB4462A508006D /* Debug */,
+				A0F5B410D2BA4C95A0460E08 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		F5121AB3273F4AD0A456F909 /* Copy Files */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6209BB7C69064DBF99F7107E /* KoalaTimerLiveActivity.appex in Copy Files */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			name = "Copy Files";
+			dstPath = "";
+			dstSubfolderSpec = 13;
+		};
+/* End PBXCopyFilesBuildPhase section */
 	};
 	rootObject = 83CBB9F71A601CBA00E9B192 /* Project object */;
 }

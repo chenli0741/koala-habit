@@ -1,6 +1,6 @@
 import { Link, router } from "expo-router";
 import { useState } from "react";
-import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Mission, MissionCategory, MissionExecutionType, TaskAttachment } from "../data/demo";
 import { profileForChild, useKoalaStore } from "../data/store";
 import { palette, shared } from "../ui/styles";
@@ -24,10 +24,13 @@ const initialDraft = {
 };
 
 export default function ParentScreen() {
-  const { activeChild, addMission, cancelMission, completeMission, completedCount, logout, missions, t, updateMission } = useKoalaStore();
+  const { activeChild, addMission, cancelMission, completeMission, completedCount, logout, missions, t, updateCompletionNote, updateMission } = useKoalaStore();
   const [taskKind, setTaskKind] = useState<TaskKind>("completion");
   const [draft, setDraft] = useState(initialDraft);
   const [editingMissionId, setEditingMissionId] = useState<string | null>(null);
+  const [confirmingMissionId, setConfirmingMissionId] = useState<string | null>(null);
+  const [completionNote, setCompletionNote] = useState("");
+  const [isTaskEditorOpen, setIsTaskEditorOpen] = useState(false);
   const profile = profileForChild(activeChild);
   const pendingMissions = missions.filter((mission) => mission.status !== "done");
   const completedMissions = missions.filter((mission) => mission.status === "done");
@@ -60,14 +63,24 @@ export default function ParentScreen() {
     };
 
     if (editingMissionId) {
-      await updateMission(editingMissionId, nextDraft);
+      const editingMission = missions.find((mission) => mission.id === editingMissionId);
+      const updateScope = editingMission && isRepeatMission(editingMission) ? await chooseRepeatUpdateScope() : undefined;
+      await updateMission(editingMissionId, nextDraft, { updateScope });
     } else {
       await addMission(nextDraft);
     }
 
     setDraft(initialDraft);
     setEditingMissionId(null);
+    setIsTaskEditorOpen(false);
     setTaskKind("completion");
+  };
+
+  const startCreating = () => {
+    setDraft(initialDraft);
+    setEditingMissionId(null);
+    setTaskKind("completion");
+    setIsTaskEditorOpen(true);
   };
 
   const startEditing = (mission: Mission) => {
@@ -79,7 +92,7 @@ export default function ParentScreen() {
       date: mission.occurrenceDate.slice(0, 10),
       detail: mission.detail,
       energy: String(mission.energy),
-      goals: mission.goals.join(", "),
+      goals: mission.goals.join("\n"),
       icon: mission.icon,
       scheduledTime: mission.scheduledTime ?? "",
       target: mission.target,
@@ -87,6 +100,40 @@ export default function ParentScreen() {
       timeLimitMinutes: mission.timeLimitMinutes ? String(mission.timeLimitMinutes) : "",
       title: mission.title
     });
+    setIsTaskEditorOpen(true);
+  };
+
+  const closeTaskEditor = () => {
+    setEditingMissionId(null);
+    setDraft(initialDraft);
+    setTaskKind("completion");
+    setIsTaskEditorOpen(false);
+  };
+
+  const openCompletionDialog = (mission: Mission) => {
+    setConfirmingMissionId(mission.id);
+    setCompletionNote(completionNoteForMission(mission) ?? "");
+  };
+
+  const closeCompletionDialog = () => {
+    setConfirmingMissionId(null);
+    setCompletionNote("");
+  };
+
+  const confirmMissionCompletion = async () => {
+    if (!confirmingMissionId) {
+      return;
+    }
+
+    const mission = missions.find((item) => item.id === confirmingMissionId);
+
+    if (mission?.status === "done" || mission?.completionRecord) {
+      await updateCompletionNote(confirmingMissionId, completionNote);
+    } else {
+      await completeMission(confirmingMissionId, { note: completionNote.trim() || undefined });
+    }
+
+    closeCompletionDialog();
   };
 
   return (
@@ -106,6 +153,9 @@ export default function ParentScreen() {
           >
             <Text style={shared.navButtonAltText}>{t("logout")}</Text>
           </Pressable>
+          <Pressable style={shared.navButtonAlt} onPress={startCreating}>
+            <Text style={shared.navButtonAltText}>创建任务</Text>
+          </Pressable>
           <Link href="/" style={shared.navButton}>
             <Text style={shared.navButtonText}>{t("backToday")}</Text>
           </Link>
@@ -113,73 +163,6 @@ export default function ParentScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.grid}>
-        <View style={StyleSheet.flatten([shared.card, styles.createCard])}>
-          <View style={styles.createHeader}>
-            <View>
-              <Text style={styles.cardTitle}>{isEditing ? "编辑任务 Edit task" : "创建任务 Create task"}</Text>
-              <Text style={styles.createSubtitle}>先选择任务类型，再填写对应信息。</Text>
-            </View>
-            <Text style={styles.createBadge}>{kindLabel(taskKind)}</Text>
-          </View>
-          <View style={styles.kindSwitch}>
-            {(["completion", "timed", "schedule"] as TaskKind[]).map((kind) => (
-              <Pressable
-                key={kind}
-                style={StyleSheet.flatten([styles.kindButton, taskKind === kind && styles.kindButtonActive])}
-                onPress={() => {
-                  setTaskKind(kind);
-                  setDraft((current) => ({
-                    ...current,
-                    category: categoryForKind(kind, current.category),
-                    icon: current.icon === iconForKind(taskKind) ? iconForKind(kind) : current.icon,
-                    timeLimitMinutes: kind === "timed" ? current.timeLimitMinutes || "20" : ""
-                  }));
-                }}
-              >
-                <Text style={StyleSheet.flatten([styles.kindButtonText, taskKind === kind && styles.kindButtonTextActive])}>{kindLabel(kind)}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <TextInput style={styles.input} value={draft.title} onChangeText={(title) => setDraft((current) => ({ ...current, title }))} placeholder="Title" />
-          <TextInput style={styles.input} value={draft.target} onChangeText={(target) => setDraft((current) => ({ ...current, target }))} placeholder={taskKind === "schedule" ? "Time, place, or short note" : "Goal"} />
-          {taskKind !== "timed" ? (
-            <TextInput style={styles.input} value={draft.detail} onChangeText={(detail) => setDraft((current) => ({ ...current, detail }))} placeholder={taskKind === "schedule" ? "Location / notes / reminder" : "Instructions or materials"} />
-          ) : null}
-          {taskKind === "completion" ? (
-            <TextInput style={styles.input} value={draft.goals} onChangeText={(goals) => setDraft((current) => ({ ...current, goals }))} placeholder="Goal list, comma separated" />
-          ) : null}
-          {taskKind === "timed" ? (
-            <>
-              <TextInput style={styles.input} value={draft.timeLimitMinutes} onChangeText={(timeLimitMinutes) => setDraft((current) => ({ ...current, timeLimitMinutes }))} keyboardType="number-pad" placeholder="Limit minutes" />
-              <TextInput style={styles.input} value={draft.targetApp} onChangeText={(targetApp) => setDraft((current) => ({ ...current, targetApp }))} placeholder="Target app, optional" />
-            </>
-          ) : null}
-          {taskKind === "schedule" ? (
-            <TextInput style={styles.input} value={draft.date} onChangeText={(date) => setDraft((current) => ({ ...current, date }))} placeholder="YYYY-MM-DD" />
-          ) : null}
-          <View style={styles.formRow}>
-            <TextInput style={StyleSheet.flatten([styles.input, styles.halfInput])} value={draft.scheduledTime} onChangeText={(scheduledTime) => setDraft((current) => ({ ...current, scheduledTime }))} placeholder="Reminder HH:MM" />
-            <TextInput style={StyleSheet.flatten([styles.input, styles.halfInput])} value={draft.energy} onChangeText={(energy) => setDraft((current) => ({ ...current, energy }))} keyboardType="number-pad" placeholder="Reward" />
-          </View>
-          <View style={styles.formActions}>
-            {isEditing ? (
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={() => {
-                  setEditingMissionId(null);
-                  setDraft(initialDraft);
-                  setTaskKind("completion");
-                }}
-              >
-                <Text style={styles.secondaryButtonText}>Cancel edit</Text>
-              </Pressable>
-            ) : null}
-            <Pressable style={styles.saveButton} onPress={saveMission}>
-              <Text style={styles.saveButtonText}>{isEditing ? "Save" : "Create"}</Text>
-            </Pressable>
-          </View>
-        </View>
-
         <View style={StyleSheet.flatten([shared.card, styles.summaryCard])}>
           <Text style={styles.cardLabel}>{t("todayComplete")}</Text>
           <Text style={styles.bigMetric}>{completedCount}/{missions.length}</Text>
@@ -214,7 +197,7 @@ export default function ParentScreen() {
                   </Pressable>
                 ) : null}
                 {kindForMission(mission) !== "timed" ? (
-                  <Pressable style={styles.confirmButton} onPress={() => completeMission(mission.id, { note: "Parent quick confirmed on iPad" })}>
+                  <Pressable style={styles.confirmButton} onPress={() => openCompletionDialog(mission)}>
                     <Text style={styles.confirmText}>{t("confirm")}</Text>
                   </Pressable>
                 ) : null}
@@ -241,6 +224,11 @@ export default function ParentScreen() {
                 <Text style={StyleSheet.flatten([styles.statusPill, mission.status === "done" && styles.statusPillDone])}>
                   {missionStatusText(mission.status, t)}
                 </Text>
+                {mission.status === "done" ? (
+                  <Pressable style={styles.secondaryButton} onPress={() => openCompletionDialog(mission)}>
+                    <Text style={styles.secondaryButtonText}>{t("supplementCompletionNote")}</Text>
+                  </Pressable>
+                ) : null}
               </View>
               {proofPhotoUriForMission(mission) || proofAudioUriForMission(mission) ? (
                 <View style={styles.proofPanel}>
@@ -260,6 +248,12 @@ export default function ParentScreen() {
                       </Pressable>
                     ) : null}
                   </View>
+                </View>
+              ) : null}
+              {completionNoteForMission(mission) ? (
+                <View style={styles.completionNotePanel}>
+                  <Text style={styles.proofTitle}>{t("completionRecord")}</Text>
+                  <Text style={styles.completionNoteText}>{completionNoteForMission(mission)}</Text>
                 </View>
               ) : null}
               {mission.planDetail.attachments.length > 0 ? (
@@ -291,6 +285,106 @@ export default function ParentScreen() {
           ))}
         </View>
       </ScrollView>
+
+      <Modal transparent animationType="fade" supportedOrientations={["landscape-left", "landscape-right"]} visible={Boolean(confirmingMissionId)} onRequestClose={closeCompletionDialog}>
+        <View style={styles.taskEditorOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeCompletionDialog} />
+          <View style={StyleSheet.flatten([shared.card, styles.completionDialog])}>
+            <Text style={styles.cardTitle}>{t("confirm")}</Text>
+            <TextInput
+              multiline
+              numberOfLines={4}
+              onChangeText={setCompletionNote}
+              placeholder={t("completionNotePlaceholder")}
+              placeholderTextColor="#8C8172"
+              style={StyleSheet.flatten([styles.input, styles.completionInput])}
+              textAlignVertical="top"
+              value={completionNote}
+            />
+            <View style={styles.formActions}>
+              <Pressable style={styles.secondaryButton} onPress={closeCompletionDialog}>
+                <Text style={styles.secondaryButtonText}>{t("cancel")}</Text>
+              </Pressable>
+              <Pressable style={styles.saveButton} onPress={confirmMissionCompletion}>
+                <Text style={styles.saveButtonText}>{t("confirm")}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal transparent animationType="fade" supportedOrientations={["landscape-left", "landscape-right"]} visible={isTaskEditorOpen} onRequestClose={closeTaskEditor}>
+        <View style={styles.taskEditorOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeTaskEditor} />
+          <ScrollView style={styles.taskEditorScroll} contentContainerStyle={styles.taskEditorContent}>
+            <View style={StyleSheet.flatten([shared.card, styles.createCard])}>
+          <View style={styles.createHeader}>
+            <View>
+              <Text style={styles.cardTitle}>{isEditing ? "编辑任务 Edit task" : "创建任务 Create task"}</Text>
+              <Text style={styles.createSubtitle}>先选择任务类型，再填写对应信息。</Text>
+            </View>
+            <Text style={styles.createBadge}>{kindLabel(taskKind)}</Text>
+          </View>
+          <View style={styles.kindSwitch}>
+            {(["completion", "timed", "schedule"] as TaskKind[]).map((kind) => (
+              <Pressable
+                key={kind}
+                style={StyleSheet.flatten([styles.kindButton, taskKind === kind && styles.kindButtonActive])}
+                onPress={() => {
+                  setTaskKind(kind);
+                  setDraft((current) => ({
+                    ...current,
+                    category: categoryForKind(kind, current.category),
+                    icon: current.icon === iconForKind(taskKind) ? iconForKind(kind) : current.icon,
+                    timeLimitMinutes: kind === "timed" ? current.timeLimitMinutes || "20" : ""
+                  }));
+                }}
+              >
+                <Text style={StyleSheet.flatten([styles.kindButtonText, taskKind === kind && styles.kindButtonTextActive])}>{kindLabel(kind)}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <TextInput style={styles.input} value={draft.title} onChangeText={(title) => setDraft((current) => ({ ...current, title }))} placeholder="Title" />
+          <TextInput style={styles.input} value={draft.target} onChangeText={(target) => setDraft((current) => ({ ...current, target }))} placeholder={taskKind === "schedule" ? "Time, place, or short note" : "Goal"} />
+          {taskKind !== "timed" ? (
+            <TextInput style={styles.input} value={draft.detail} onChangeText={(detail) => setDraft((current) => ({ ...current, detail }))} placeholder={taskKind === "schedule" ? "Location / notes / reminder" : "Instructions or materials"} />
+          ) : null}
+          {taskKind === "completion" ? (
+            <>
+              <TextInput multiline numberOfLines={3} style={StyleSheet.flatten([styles.input, styles.goalsInput])} value={draft.goals} onChangeText={(goals) => setDraft((current) => ({ ...current, goals }))} placeholder="Recommended: 2-3 lines" />
+              <Text style={styles.fieldHint}>建议 2-3 行。</Text>
+            </>
+          ) : null}
+          {taskKind === "timed" ? (
+            <>
+              <TextInput style={styles.input} value={draft.timeLimitMinutes} onChangeText={(timeLimitMinutes) => setDraft((current) => ({ ...current, timeLimitMinutes }))} keyboardType="number-pad" placeholder="Limit minutes" />
+              <TextInput style={styles.input} value={draft.targetApp} onChangeText={(targetApp) => setDraft((current) => ({ ...current, targetApp }))} placeholder="Target app, optional" />
+            </>
+          ) : null}
+          {taskKind === "schedule" ? (
+            <TextInput style={styles.input} value={draft.date} onChangeText={(date) => setDraft((current) => ({ ...current, date }))} placeholder="YYYY-MM-DD" />
+          ) : null}
+          <View style={styles.formRow}>
+            <TextInput style={StyleSheet.flatten([styles.input, styles.halfInput])} value={draft.scheduledTime} onChangeText={(scheduledTime) => setDraft((current) => ({ ...current, scheduledTime }))} placeholder="Reminder HH:MM" />
+            <TextInput style={StyleSheet.flatten([styles.input, styles.halfInput])} value={draft.energy} onChangeText={(energy) => setDraft((current) => ({ ...current, energy }))} keyboardType="number-pad" placeholder="Reward" />
+          </View>
+          <View style={styles.formActions}>
+            {isEditing ? (
+              <Pressable
+                style={styles.secondaryButton}
+                onPress={closeTaskEditor}
+              >
+                <Text style={styles.secondaryButtonText}>Cancel edit</Text>
+              </Pressable>
+            ) : null}
+            <Pressable style={styles.saveButton} onPress={saveMission}>
+              <Text style={styles.saveButtonText}>{isEditing ? "Save" : "Create"}</Text>
+            </Pressable>
+          </View>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -309,6 +403,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10
+  },
+  taskEditorOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(35, 35, 29, 0.42)",
+    paddingHorizontal: 44,
+    paddingVertical: 28
+  },
+  taskEditorScroll: {
+    flex: 1
+  },
+  taskEditorContent: {
+    alignSelf: "center",
+    maxWidth: 760,
+    paddingBottom: 24,
+    width: "100%"
   },
   summaryCard: {
     flexBasis: 300,
@@ -477,6 +586,22 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 13,
     fontWeight: "800",
+    marginTop: 4
+  },
+  completionNotePanel: {
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: palette.line,
+    marginLeft: 56,
+    marginTop: 10,
+    padding: 10
+  },
+  completionNoteText: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 20,
     marginTop: 4
   },
   attachmentPanel: {
@@ -693,6 +818,26 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingHorizontal: 12
   },
+  completionDialog: {
+    alignSelf: "center",
+    marginTop: 88,
+    maxWidth: 620,
+    width: "100%"
+  },
+  completionInput: {
+    minHeight: 120,
+    paddingVertical: 12
+  },
+  goalsInput: {
+    marginBottom: 4
+  },
+  fieldHint: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 16,
+    marginBottom: 10
+  },
   formRow: {
     flexDirection: "row",
     gap: 10
@@ -796,7 +941,7 @@ function goalsForDraft(kind: TaskKind, draft: typeof initialDraft) {
   }
 
   const goals = draft.goals
-    .split(",")
+    .split(/[\n,，]+/)
     .map((goal) => goal.trim())
     .filter(Boolean);
 
@@ -805,6 +950,36 @@ function goalsForDraft(kind: TaskKind, draft: typeof initialDraft) {
   }
 
   return goals;
+}
+
+function isRepeatMission(mission: Mission) {
+  const repeatRule = mission.repeatRule?.trim();
+
+  if (!repeatRule || repeatRule === "FREQ=NONE") {
+    return false;
+  }
+
+  return !/COUNT=1(?:;|$)/.test(repeatRule);
+}
+
+function chooseRepeatUpdateScope() {
+  return new Promise<"single" | "future">((resolve) => {
+    Alert.alert(
+      "修改重复任务",
+      "这次修改要应用到哪些任务？",
+      [
+        {
+          text: "只修改这一天",
+          onPress: () => resolve("single")
+        },
+        {
+          text: "修改今天及以后所有任务",
+          onPress: () => resolve("future")
+        }
+      ],
+      { cancelable: false }
+    );
+  });
 }
 
 function detailForKind(kind: TaskKind, draft: typeof initialDraft) {
@@ -848,6 +1023,17 @@ function proofPhotoUriForMission(mission: Mission) {
 
 function proofAudioUriForMission(mission: Mission) {
   return mission.completionRecord?.audioUri ?? latestProofAttachmentUri(mission, "audio");
+}
+
+function completionNoteForMission(mission: Mission) {
+  const completionEvent = [...mission.eventRecords].reverse().find((event) => event.eventType === "completion_note" || event.eventType === "completion");
+  const note = completionEvent?.metadata?.note;
+
+  if (typeof note === "string" && note.trim()) {
+    return note.trim();
+  }
+
+  return mission.completionRecord?.note?.trim() || undefined;
 }
 
 function AttachmentPreviewTile({ attachment, onOpen, t }: { attachment: TaskAttachment; onOpen: (attachment: TaskAttachment) => void; t: (key: string) => string }) {
