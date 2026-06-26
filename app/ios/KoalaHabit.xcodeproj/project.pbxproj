@@ -237,7 +237,6 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* KoalaHabit */,
-				A83A5312BAC445EF9859E543 /* "KoalaTimerLiveActivity" */,
 			);
 		};
 /* End PBXProject section */
@@ -679,7 +678,6 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6209BB7C69064DBF99F7107E /* KoalaTimerLiveActivity.appex in Copy Files */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			name = "Copy Files";
