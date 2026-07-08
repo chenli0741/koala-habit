@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { bookCatalog, bookRecords } from "./data/bookCatalog";
 
 type Child = {
   id: string;
@@ -123,7 +124,7 @@ type TaskTemplate = {
 };
 
 type AuthMode = "login" | "register";
-type AdminView = "overview" | "tasks" | "templates" | "family" | "rules" | "history";
+type AdminView = "overview" | "tasks" | "templates" | "family" | "rules" | "history" | "books";
 type CalendarView = "day" | "week" | "month";
 type TaskLayout = "left" | "split" | "right";
 type TaskKind = "completion" | "timed" | "schedule";
@@ -198,6 +199,10 @@ const zh: Record<string, string> = {
   addTask: "新增任务",
   assessmentMethod: "评价方式",
   attachments: "附件",
+  bookCatalog: "内容目录",
+  bookCatalogEndpoint: "目录接口",
+  bookContentEndpoint: "内容详情",
+  books: "Books",
   calendar: "日历",
   calendarTasks: "日历任务",
   categoryCalendar: "日程",
@@ -263,9 +268,11 @@ const zh: Record<string, string> = {
   rules: "规则",
   saveChanges: "保存修改",
   signedIn: "已登录。",
+  stableId: "稳定 ID",
   singleRepeatTask: "只修改这一天",
   supplementCompletionNote: "补充完成情况",
   taskContent: "任务内容",
+  onlineContentDownload: "在线内容下载",
   templateCreated: "模板已创建。",
   templateDeleted: "模板已删除。",
   templateGenerated: "已从模板生成任务。",
@@ -353,6 +360,10 @@ const zh: Record<string, string> = {
 
 const en: Record<string, string> = {
   actualMinutes: "Actual time",
+  bookCatalog: "Content catalog",
+  bookCatalogEndpoint: "Catalog endpoint",
+  bookContentEndpoint: "Content detail",
+  books: "Books",
   completionNote: "Completion note",
   completionNoteOptional: "Add completion details, optional.",
   confirmTaskCompletion: "Confirm task completion",
@@ -363,10 +374,12 @@ const en: Record<string, string> = {
   elapsedTime: "Elapsed time",
   goalsCardHint: "Recommended: 2-3 lines.",
   noExecutionRecords: "No execution records yet.",
+  onlineContentDownload: "Online content download",
   proof: "Proof",
   repeatEditPrompt: "Which tasks should this change apply to?",
   repeatEditTitle: "Edit repeating task",
   singleRepeatTask: "Edit only this day",
+  stableId: "Stable ID",
   supplementCompletionNote: "Add completion note"
 };
 
@@ -1218,7 +1231,8 @@ export default function Page() {
           {[
             ["overview", t("overview")],
             ["tasks", t("tasks")],
-            ["history", t("history")]
+            ["history", t("history")],
+            ["books", t("books")]
           ].map(([key, label]) => (
             <button key={key} className={adminView === key ? "active" : ""} type="button" onClick={() => setAdminView(key as AdminView)}>
               {label}
@@ -1523,6 +1537,55 @@ export default function Page() {
                 <span>{formatMissionStatus(mission.status, t)}</span>
                 <strong>{mission.title}</strong>
                 <em>{mission.detail ?? mission.target}</em>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {adminView === "books" ? (
+        <section className="booksPage">
+          <div className="panel booksIntro">
+            <div>
+              <p className="kicker">{t("onlineContentDownload")}</p>
+              <h2>{t("books")}</h2>
+              <p>
+                {language === "zh"
+                  ? "为 KoalaStudy 提供可选在线内容目录。App 可按分类浏览，单篇或整类下载，并用稳定 id 更新本地 JSON 内容。"
+                  : "Optional KoalaStudy content source for category browsing, single-item downloads, and stable-id local JSON updates."}
+              </p>
+            </div>
+            <div className="endpointStack">
+              <span>{t("bookCatalogEndpoint")}</span>
+              <code>/koala-study/catalog.json</code>
+              <span>{t("bookContentEndpoint")}</span>
+              <code>/koala-study/english/morning-focus.json</code>
+            </div>
+          </div>
+
+          <div className="bookCategoryGrid">
+            {bookCatalog.categories.map((category) => (
+              <article className="panel bookCategoryCard" key={category.name}>
+                <div className="sectionHead">
+                  <div>
+                    <p className="kicker">{t("category")}</p>
+                    <h3>{category.name}</h3>
+                  </div>
+                  <strong>{category.items.length}</strong>
+                </div>
+                <div className="bookList">
+                  {category.items.map((item) => {
+                    const record = bookRecords.find((book) => book.path === item.url);
+
+                    return (
+                      <div key={item.url}>
+                        <strong>{item.title}</strong>
+                        <span>{item.url}</span>
+                        {record ? <em>{t("stableId")}: {record.content.id}</em> : null}
+                      </div>
+                    );
+                  })}
+                </div>
               </article>
             ))}
           </div>
