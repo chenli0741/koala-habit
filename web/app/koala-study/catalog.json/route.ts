@@ -1,7 +1,9 @@
-import { bookCatalog } from "../../data/bookCatalog";
+import { getBookCatalog } from "../../data/bookStore";
 
-export function GET() {
-  return jsonResponse(bookCatalog);
+export const runtime = "nodejs";
+
+export async function GET() {
+  return jsonResponse(await getBookCatalog());
 }
 
 function jsonResponse(data: unknown) {

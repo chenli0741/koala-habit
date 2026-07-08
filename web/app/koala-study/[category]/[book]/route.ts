@@ -1,4 +1,6 @@
-import { findBookByPath } from "../../../data/bookCatalog";
+import { findBookByPath } from "../../../data/bookStore";
+
+export const runtime = "nodejs";
 
 type RouteContext = {
   params: Promise<{
@@ -9,7 +11,7 @@ type RouteContext = {
 
 export async function GET(_request: Request, context: RouteContext) {
   const params = await context.params;
-  const book = findBookByPath(`${params.category}/${params.book}`);
+  const book = await findBookByPath(`${params.category}/${params.book}`);
 
   if (!book) {
     return jsonResponse({ error: "Book content not found" }, 404);

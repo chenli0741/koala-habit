@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { bookCatalog, bookRecords } from "./data/bookCatalog";
+import type { BookRecord } from "./data/bookCatalog";
 
 type Child = {
   id: string;
@@ -155,6 +155,13 @@ type TaskForm = {
   tone: string;
   total: string;
   vocabulary: string;
+};
+
+type BookForm = {
+  category: string;
+  content: string;
+  id: string;
+  title: string;
 };
 
 type TemplateForm = {
@@ -483,6 +490,13 @@ const emptyFilters: TaskFilters = {
   timeTo: ""
 };
 
+const emptyBookForm: BookForm = {
+  category: "英语",
+  content: "",
+  id: "",
+  title: ""
+};
+
 const weekDayOptions = [
   { code: "SU", label: "日" },
   { code: "MO", label: "一" },
@@ -609,6 +623,14 @@ export default function Page() {
   const [family, setFamily] = useState<Family | null>(null);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
+  const [books, setBooks] = useState<BookRecord[]>([]);
+  const [bookCategories, setBookCategories] = useState<string[]>(["圣经", "英语", "新闻", "AI"]);
+  const [bookForm, setBookForm] = useState<BookForm>(emptyBookForm);
+  const [bookCategoryName, setBookCategoryName] = useState("");
+  const [selectedBookCategory, setSelectedBookCategory] = useState("圣经");
+  const [bookPage, setBookPage] = useState(1);
+  const [isBookCategoryDialogOpen, setIsBookCategoryDialogOpen] = useState(false);
+  const [isBookDialogOpen, setIsBookDialogOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [account, setAccount] = useState({
     confirmPassword: "",
@@ -649,6 +671,10 @@ export default function Page() {
   );
   const selectedMission = visibleMissions.find((mission) => mission.id === selectedMissionId) ?? visibleMissions[0] ?? filteredMissions[0];
   const completionDialogMission = missions.find((mission) => mission.id === completionDialogMissionId);
+  const filteredBooks = books.filter((book) => book.content.category === selectedBookCategory);
+  const bookPageSize = 30;
+  const bookPageCount = Math.max(1, Math.ceil(filteredBooks.length / bookPageSize));
+  const visibleBooks = filteredBooks.slice((bookPage - 1) * bookPageSize, bookPage * bookPageSize);
   const completed = missions.filter((mission) => mission.status === "done").length;
   const totalEnergy = missions.reduce((sum, mission) => sum + (mission.status === "done" ? mission.energy : 0), 0);
   const completionRate = missions.length ? Math.round((completed / missions.length) * 100) : 0;
@@ -677,6 +703,16 @@ export default function Page() {
       void loadChildData(activeChild.id);
     }
   }, [activeChild?.id, calendarAnchorDate, calendarView, filters.dateFrom, filters.dateTo]);
+
+  useEffect(() => {
+    if (isSignedIn) {
+      void loadBooks();
+    }
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    setBookPage(1);
+  }, [selectedBookCategory]);
 
   async function loadFamily(familyId = family?.id ?? "demo") {
     try {
@@ -708,6 +744,80 @@ export default function Page() {
       setTemplates(templateData.templates);
       setSelectedMissionId((current) => current ?? missionData.missions[0]?.id ?? null);
       setSelectedTemplateId((current) => current ?? templateData.templates[0]?.id ?? null);
+    } catch (error) {
+      setMessage(readableRequestError(error, t));
+    }
+  }
+
+  async function loadBooks() {
+    try {
+      const response = await fetch("/api/books");
+
+      if (!response.ok) {
+        throw new Error(`Books request failed: ${response.status}`);
+      }
+
+      const data = (await response.json()) as { books: BookRecord[]; categories?: string[] };
+      const categories = data.categories?.length ? data.categories : ["圣经", "英语", "新闻", "AI"];
+      setBooks(data.books);
+      setBookCategories(categories);
+      setSelectedBookCategory((current) => (categories.includes(current) ? current : categories[0] ?? "圣经"));
+    } catch (error) {
+      setMessage(readableRequestError(error, t));
+    }
+  }
+
+  async function submitBook(event: FormEvent) {
+    event.preventDefault();
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/books", {
+        body: JSON.stringify(bookForm),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: "POST"
+      });
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `Books request failed: ${response.status}`);
+      }
+
+      setBookForm({ ...emptyBookForm, category: bookForm.category });
+      setSelectedBookCategory(bookForm.category);
+      setIsBookDialogOpen(false);
+      await loadBooks();
+    } catch (error) {
+      setMessage(readableRequestError(error, t));
+    }
+  }
+
+  async function submitBookCategory(event: FormEvent) {
+    event.preventDefault();
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/book-categories", {
+        body: JSON.stringify({ name: bookCategoryName }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: "POST"
+      });
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? `Category request failed: ${response.status}`);
+      }
+
+      const data = (await response.json()) as { category: string };
+      setBookCategoryName("");
+      setBookForm((current) => ({ ...current, category: data.category }));
+      setSelectedBookCategory(data.category);
+      setIsBookCategoryDialogOpen(false);
+      await loadBooks();
     } catch (error) {
       setMessage(readableRequestError(error, t));
     }
@@ -1563,33 +1673,132 @@ export default function Page() {
             </div>
           </div>
 
-          <div className="bookCategoryGrid">
-            {bookCatalog.categories.map((category) => (
-              <article className="panel bookCategoryCard" key={category.name}>
-                <div className="sectionHead">
-                  <div>
-                    <p className="kicker">{t("category")}</p>
-                    <h3>{category.name}</h3>
-                  </div>
-                  <strong>{category.items.length}</strong>
+          <div className="bookWorkspace">
+            <aside className="panel bookSidebar">
+              <div className="sectionHead">
+                <div>
+                  <p className="kicker">{t("category")}</p>
+                  <h3>{language === "zh" ? "分类管理" : "Category management"}</h3>
                 </div>
-                <div className="bookList">
-                  {category.items.map((item) => {
-                    const record = bookRecords.find((book) => book.path === item.url);
+                <button className="iconButton addButton" type="button" aria-label={language === "zh" ? "新增分类" : "Add category"} onClick={() => setIsBookCategoryDialogOpen(true)}>+</button>
+              </div>
+              <div className="bookCategoryFilter">
+                {bookCategories.map((category) => (
+                  <button
+                    className={selectedBookCategory === category ? "active" : ""}
+                    key={category}
+                    type="button"
+                    onClick={() => setSelectedBookCategory(category)}
+                  >
+                    {category}
+                    <span>{books.filter((book) => book.content.category === category).length}</span>
+                  </button>
+                ))}
+              </div>
+            </aside>
 
-                    return (
-                      <div key={item.url}>
-                        <strong>{item.title}</strong>
-                        <span>{item.url}</span>
-                        {record ? <em>{t("stableId")}: {record.content.id}</em> : null}
-                      </div>
-                    );
-                  })}
+            <div className="panel bookMainPanel">
+              <div className="sectionHead">
+                <div>
+                  <p className="kicker">{t("bookCatalog")}</p>
+                  <h3>{selectedBookCategory}</h3>
                 </div>
-              </article>
-            ))}
+                <div className="bookPager">
+                  <button className="iconButton addButton" type="button" aria-label={language === "zh" ? "新增内容" : "Add content"} onClick={() => {
+                    setBookForm((current) => ({ ...current, category: selectedBookCategory }));
+                    setIsBookDialogOpen(true);
+                  }}>+</button>
+                  <button className="secondary" disabled={bookPage <= 1} type="button" onClick={() => setBookPage((current) => Math.max(1, current - 1))}>
+                    {language === "zh" ? "上一页" : "Prev"}
+                  </button>
+                  <span>{bookPage} / {bookPageCount}</span>
+                  <button className="secondary" disabled={bookPage >= bookPageCount} type="button" onClick={() => setBookPage((current) => Math.min(bookPageCount, current + 1))}>
+                    {language === "zh" ? "下一页" : "Next"}
+                  </button>
+                </div>
+              </div>
+              <div className="bookList">
+                {visibleBooks.map((book) => (
+                  <div key={book.path}>
+                    <strong>{book.content.title}</strong>
+                    <span>{book.path}</span>
+                    <em>{t("stableId")}: {book.content.id}</em>
+                  </div>
+                ))}
+                {!visibleBooks.length ? (
+                  <div>
+                    <strong>{language === "zh" ? "当前分类还没有内容" : "No content in this category"}</strong>
+                    <span>{language === "zh" ? "使用右侧表单新增 Books 内容。" : "Use the form to add Books content."}</span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
         </section>
+      ) : null}
+
+      {isBookCategoryDialogOpen ? (
+        <div className="modalBackdrop" role="presentation">
+          <form aria-modal="true" className="largeTextDialog bookDialog" role="dialog" onSubmit={submitBookCategory}>
+            <div className="sectionHead">
+              <div>
+                <p className="kicker">{t("category")}</p>
+                <h2>{language === "zh" ? "新增分类" : "Add category"}</h2>
+              </div>
+            </div>
+            <label>
+              {language === "zh" ? "分类名称" : "Category name"}
+              <input value={bookCategoryName} onChange={(event) => setBookCategoryName(event.target.value)} />
+            </label>
+            <div className="actionRow">
+              <button className="secondary" type="button" onClick={() => {
+                setBookCategoryName("");
+                setIsBookCategoryDialogOpen(false);
+              }}>{t("cancel")}</button>
+              <button type="submit">{language === "zh" ? "保存分类" : "Save category"}</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {isBookDialogOpen ? (
+        <div className="modalBackdrop" role="presentation">
+          <form aria-modal="true" className="largeTextDialog bookDialog" role="dialog" onSubmit={submitBook}>
+            <div className="sectionHead">
+              <div>
+                <p className="kicker">{language === "zh" ? "新增内容" : "New content"}</p>
+                <h2>{t("books")}</h2>
+              </div>
+            </div>
+            <label>
+              {t("category")}
+              <select value={bookForm.category} onChange={(event) => setBookForm({ ...bookForm, category: event.target.value })}>
+                {bookCategories.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {language === "zh" ? "标题" : "Title"}
+              <input value={bookForm.title} onChange={(event) => setBookForm({ ...bookForm, title: event.target.value })} />
+            </label>
+            <label>
+              {t("stableId")}
+              <input placeholder={language === "zh" ? "留空自动生成 UUID" : "Leave blank to auto-generate UUID"} value={bookForm.id} onChange={(event) => setBookForm({ ...bookForm, id: event.target.value })} />
+            </label>
+            <label>
+              {language === "zh" ? "正文" : "Content"}
+              <textarea rows={10} value={bookForm.content} onChange={(event) => setBookForm({ ...bookForm, content: event.target.value })} />
+            </label>
+            <div className="actionRow">
+              <button className="secondary" type="button" onClick={() => {
+                setBookForm({ ...emptyBookForm, category: selectedBookCategory });
+                setIsBookDialogOpen(false);
+              }}>{t("cancel")}</button>
+              <button type="submit">{language === "zh" ? "保存内容" : "Save content"}</button>
+            </div>
+          </form>
+        </div>
       ) : null}
 
       {completionDialogMissionId ? (

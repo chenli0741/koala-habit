@@ -1601,6 +1601,117 @@ p {
   gap: 18px;
 }
 
+.bookWorkspace {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.bookSidebar,
+.bookMainPanel,
+.bookForm {
+  display: grid;
+  gap: 14px;
+}
+
+.bookSidebar h3,
+.bookMainPanel h3,
+.bookForm h3 {
+  margin: 4px 0 0;
+}
+
+.bookCategoryFilter {
+  display: grid;
+  gap: 8px;
+}
+
+.bookCategoryFilter button {
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  background: #eef3ea;
+  color: #3f7d58;
+  text-align: left;
+}
+
+.bookCategoryFilter button.active {
+  background: #20352b;
+  color: #fff;
+}
+
+.bookCategoryFilter span {
+  min-width: 28px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 3px 8px;
+  text-align: center;
+}
+
+.bookCategoryForm,
+.bookForm {
+  display: grid;
+  gap: 12px;
+}
+
+.bookCategoryForm label,
+.bookForm label {
+  display: grid;
+  gap: 7px;
+  color: #657365;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.bookPager {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.addButton {
+  width: 36px;
+  min-height: 36px;
+  border-radius: 50%;
+  background: #20352b;
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.bookDialog {
+  gap: 14px;
+}
+
+.bookDialog label {
+  display: grid;
+  gap: 7px;
+  color: #657365;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.bookPager button {
+  min-height: 36px;
+}
+
+.bookPager button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.bookPager span {
+  color: #657365;
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .bookCategoryCard {
   display: grid;
   gap: 14px;
@@ -1624,6 +1735,10 @@ p {
 .bookList {
   display: grid;
   gap: 10px;
+}
+
+.bookList.compact {
+  margin-top: 0;
 }
 
 .bookList div {
@@ -1738,6 +1853,7 @@ p {
   .templateWorkspace,
   .overviewGrid,
   .booksIntro,
+  .bookWorkspace,
   .bookCategoryGrid,
   .gridTwo {
     grid-template-columns: 1fr;
