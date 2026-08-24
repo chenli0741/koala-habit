@@ -40,3 +40,4 @@ pnpm-debug.*
 # macOS
 .DS_Store
 *.pem
+.vercel
