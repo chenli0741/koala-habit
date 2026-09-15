@@ -125,6 +125,7 @@ type TaskTemplate = {
 
 type AuthMode = "login" | "register";
 type AdminView = "overview" | "tasks" | "templates" | "family" | "rules" | "history" | "books";
+type AppMode = "child" | "parent";
 type CalendarView = "day" | "week" | "month";
 type TaskLayout = "left" | "split" | "right";
 type TaskKind = "completion" | "timed" | "schedule";
@@ -197,7 +198,19 @@ type TaskFilters = {
   timeTo: string;
 };
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
+
+function apiBaseUrl() {
+  if (configuredApiBaseUrl) {
+    return configuredApiBaseUrl;
+  }
+
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:8787`;
+  }
+
+  return "http://localhost:8787";
+}
 
 const zh: Record<string, string> = {
   account: "账号",
@@ -619,6 +632,7 @@ export default function Page() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [language, setLanguage] = useState<Language>("en");
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const [appMode, setAppMode] = useState<AppMode>("child");
   const [adminView, setAdminView] = useState<AdminView>("overview");
   const [family, setFamily] = useState<Family | null>(null);
   const [missions, setMissions] = useState<Mission[]>([]);
@@ -852,6 +866,7 @@ export default function Page() {
       setIsSignedIn(true);
       setMessage(authMode === "login" ? "" : t("accountRegistered"));
       saveWebSession(data.session?.familyId ?? data.family.id);
+      setAppMode(data.family.children.length > 0 ? "child" : "parent");
       setAdminView(authMode === "login" && data.family.children.length > 0 ? "overview" : "family");
 
       const child = data.family.children[0];
@@ -878,6 +893,7 @@ export default function Page() {
 
     setFamily(data.family);
     setIsSignedIn(true);
+    setAppMode(data.family.children.length > 0 ? "child" : "parent");
     setMessage(t("googleSaved"));
     saveWebSession(data.session?.familyId ?? data.family.id);
     await loadFamily(data.session?.familyId ?? data.family.id);
@@ -1274,6 +1290,7 @@ export default function Page() {
   }
 
   function selectAdminView(view: AdminView) {
+    setAppMode("parent");
     setAdminView(view);
   }
 
@@ -1303,23 +1320,23 @@ export default function Page() {
               <button className={authMode === "login" ? "active" : ""} type="button" onClick={() => setAuthMode("login")}>{t("login")}</button>
               <button className={authMode === "register" ? "active" : ""} type="button" onClick={() => setAuthMode("register")}>{t("register")}</button>
             </div>
-            <label>
-              {t("parentName")}
-              <input value={account.name} disabled={authMode === "login"} onChange={(event) => setAccount({ ...account, name: event.target.value })} />
-            </label>
-            <label>
-              Email
-              <input type="email" value={account.email} onChange={(event) => setAccount({ ...account, email: event.target.value })} />
-            </label>
-            <label>
-              {t("password")}
-              <input type="password" value={account.password} onChange={(event) => setAccount({ ...account, password: event.target.value })} />
-            </label>
+            <div className="authField">
+              <label htmlFor="parent-name">{t("parentName")}</label>
+              <input id="parent-name" value={account.name} disabled={authMode === "login"} onChange={(event) => setAccount({ ...account, name: event.target.value })} />
+            </div>
+            <div className="authField">
+              <label htmlFor="parent-email">Email</label>
+              <input id="parent-email" type="email" value={account.email} onChange={(event) => setAccount({ ...account, email: event.target.value })} />
+            </div>
+            <div className="authField">
+              <label htmlFor="parent-password">{t("password")}</label>
+              <input id="parent-password" type="password" value={account.password} onChange={(event) => setAccount({ ...account, password: event.target.value })} />
+            </div>
             {authMode === "register" ? (
-              <label>
-                {t("confirmPassword")}
-                <input type="password" value={account.confirmPassword} onChange={(event) => setAccount({ ...account, confirmPassword: event.target.value })} />
-              </label>
+              <div className="authField">
+                <label htmlFor="parent-confirm-password">{t("confirmPassword")}</label>
+                <input id="parent-confirm-password" type="password" value={account.confirmPassword} onChange={(event) => setAccount({ ...account, confirmPassword: event.target.value })} />
+              </div>
             ) : null}
             <button type="submit">{authMode === "login" ? t("login") : t("createAccount")}</button>
             <button className="secondary" type="button" onClick={googleLogin}>{t("continueGoogle")}</button>
@@ -1327,6 +1344,36 @@ export default function Page() {
           </form>
         </section>
       </main>
+    );
+  }
+
+  if (appMode === "child" && activeChild) {
+    return (
+      <ChildAppPage
+        activeChild={activeChild}
+        calendarAnchorDate={calendarAnchorDate}
+        calendarView={calendarView === "month" ? "week" : calendarView}
+        family={family}
+        language={language}
+        message={message}
+        missions={missions}
+        selectedMissionId={selectedMissionId}
+        t={t}
+        totalEnergy={totalEnergy}
+        onComplete={startCompleteTask}
+        onDateChange={(date) => {
+          setCalendarAnchorDate(date);
+          setSelectedMissionId(null);
+        }}
+        onLanguage={setLanguage}
+        onLogout={logout}
+        onModeChange={setAppMode}
+        onSelectMission={(mission) => {
+          setCalendarAnchorDate(missionDateKey(mission));
+          setSelectedMissionId(mission.id);
+        }}
+        onViewChange={setCalendarView}
+      />
     );
   }
 
@@ -1350,6 +1397,7 @@ export default function Page() {
           ))}
         </nav>
         <div className="headerActions">
+          {activeChild ? <button className="secondary" type="button" onClick={() => setAppMode("child")}>Switch Child</button> : null}
           <button className="iconButton" type="button" aria-label="Help">?</button>
           <button className="iconButton" type="button" aria-label="Settings">⚙</button>
           <LanguageMenu language={language} onLanguage={setLanguage} />
@@ -1848,6 +1896,230 @@ export default function Page() {
         </div>
       ) : null}
     </main>
+  );
+}
+
+function ChildAppPage({
+  activeChild,
+  calendarAnchorDate,
+  calendarView,
+  family,
+  language,
+  message,
+  missions,
+  onComplete,
+  onDateChange,
+  onLanguage,
+  onLogout,
+  onModeChange,
+  onSelectMission,
+  onViewChange,
+  selectedMissionId,
+  t,
+  totalEnergy
+}: {
+  activeChild: Child;
+  calendarAnchorDate: string;
+  calendarView: "day" | "week";
+  family: Family | null;
+  language: Language;
+  message: string;
+  missions: Mission[];
+  onComplete: (mission: Mission) => void;
+  onDateChange: (date: string) => void;
+  onLanguage: (language: Language) => void;
+  onLogout: () => void;
+  onModeChange: (mode: AppMode) => void;
+  onSelectMission: (mission: Mission) => void;
+  onViewChange: (view: CalendarView) => void;
+  selectedMissionId: string | null;
+  t: (key: string) => string;
+  totalEnergy: number;
+}) {
+  const today = todayKey();
+  const viewDays = calendarView === "day" ? [calendarAnchorDate] : weekDays(calendarAnchorDate);
+  const visibleMissions = missions.filter((mission) => viewDays.includes(missionDateKey(mission)));
+  const dayMissions = visibleMissions.filter((mission) => missionDateKey(mission) === calendarAnchorDate);
+  const selectedMission =
+    visibleMissions.find((mission) => mission.id === selectedMissionId) ??
+    dayMissions[0] ??
+    visibleMissions[0] ??
+    null;
+  const completedToday = dayMissions.filter((mission) => mission.status === "done").length;
+  const completionPercent = dayMissions.length ? Math.round((completedToday / dayMissions.length) * 100) : 0;
+  const childInitial = initials(activeChild.name);
+
+  return (
+    <main className="childShell">
+      <aside className="childSidebar">
+        <div className="childBrand">Koala Habit</div>
+        <section className="childProfileCard">
+          <div className="childPhoto">
+            {activeChild.avatarUri ? <img alt="" src={activeChild.avatarUri} /> : <span>{childInitial}</span>}
+          </div>
+          <h2>{activeChild.name}</h2>
+          <p>{family?.name ?? "Growth Tree"}</p>
+        </section>
+        <section className="childEnergyCard">
+          <span>{language === "zh" ? "今日能量" : "Today Energy"}</span>
+          <strong>⭐ {totalEnergy}</strong>
+          <p>{language === "zh" ? `今日完成 ${completedToday}/${dayMissions.length}` : `${completedToday}/${dayMissions.length} complete today`}</p>
+        </section>
+        <section className="childTreeCard">
+          <div className="treeFace"><span /></div>
+          <strong>Lv3 Young Tree</strong>
+          <p>{completionPercent}% Today complete</p>
+          <div className="childProgress"><i style={{ width: `${completionPercent}%` }} /></div>
+        </section>
+      </aside>
+
+      <section className="childMain">
+        <header className="childHeader">
+          <div>
+            <p className="kicker">{calendarAnchorDate === today ? "TODAY" : shortDateLabel(calendarAnchorDate)}</p>
+            <h1>{greetingForChild(language, activeChild.name)}</h1>
+            <p>{language === "zh" ? "阅读、数学、音乐、中文、运动和生活习惯。" : "Summer habits: reading, math, music, Chinese, and soccer."}</p>
+          </div>
+          <div className="childHeaderActions">
+            <LanguageMenu language={language} onLanguage={onLanguage} />
+            <button className="secondary" type="button" onClick={() => onModeChange("parent")}>Parent</button>
+            <button className="iconButton" type="button" aria-label="Logout" onClick={onLogout}>☰</button>
+          </div>
+        </header>
+
+        {message ? <p className="message toast">{message}</p> : null}
+
+        <div className="childWorkspace">
+          <section className="childTasksPanel">
+            <div className="childPanelHead">
+              <div>
+                <h2>{calendarAnchorDate === today ? "Today Tasks" : "Tasks"} ({formatShortMonthDay(calendarAnchorDate)})</h2>
+                <div className="modeSwitch childModeSwitch">
+                  <button className={calendarView === "day" ? "active" : ""} type="button" onClick={() => onViewChange("day")}>Day</button>
+                  <button className={calendarView === "week" ? "active" : ""} type="button" onClick={() => onViewChange("week")}>Week</button>
+                </div>
+              </div>
+              <input aria-label="Task date" type="date" value={calendarAnchorDate} onChange={(event) => onDateChange(event.target.value)} />
+            </div>
+
+            {calendarView === "week" ? (
+              <div className="childWeekStrip">
+                {viewDays.map((date) => {
+                  const count = missions.filter((mission) => missionDateKey(mission) === date).length;
+                  return (
+                    <button key={date} className={date === calendarAnchorDate ? "active" : ""} type="button" onClick={() => onDateChange(date)}>
+                      <strong>{shortDateLabel(date)}</strong>
+                      <span>{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            <div className="childTaskGrid">
+              {(calendarView === "day" ? dayMissions : visibleMissions).map((mission) => (
+                <ChildTaskCard
+                  key={mission.id}
+                  mission={mission}
+                  selected={selectedMission?.id === mission.id}
+                  t={t}
+                  onClick={() => onSelectMission(mission)}
+                />
+              ))}
+              {!(calendarView === "day" ? dayMissions : visibleMissions).length ? (
+                <div className="childEmpty">
+                  <strong>{t("noTasks")}</strong>
+                  <span>{language === "zh" ? "今天可以休息，或者请家长添加任务。" : "Nothing here yet. Ask parent to add a task."}</span>
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <aside className="childDetailPanel">
+            {selectedMission ? (
+              <ChildMissionDetail mission={selectedMission} onComplete={onComplete} t={t} />
+            ) : (
+              <div className="childEmpty detailEmpty">
+                <strong>{language === "zh" ? "选择一个任务" : "Select a task"}</strong>
+                <span>{language === "zh" ? "任务详情会显示在这里。" : "Task details will appear here."}</span>
+              </div>
+            )}
+          </aside>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function ChildTaskCard({ mission, onClick, selected, t }: { mission: Mission; onClick: () => void; selected: boolean; t: (key: string) => string }) {
+  const progressPercent = Math.min(100, Math.round(((mission.progress ?? 0) / Math.max(1, mission.total ?? 1)) * 100));
+
+  return (
+    <button className={`childTaskCard ${selected ? "selected" : ""}`} type="button" onClick={onClick}>
+      <span className="childTaskIcon">{mission.icon}</span>
+      <span className="childTaskBody">
+        <strong>{mission.title}</strong>
+        <em>{mission.target}</em>
+        <span className="childTaskMeta">
+          {mission.source ? <i>{formatSource(mission.source, t)}</i> : null}
+          {mission.timeLimitMinutes ? <i>{mission.timeLimitMinutes} min</i> : null}
+          {mission.scheduledTime ? <i>{mission.scheduledTime}</i> : null}
+        </span>
+        <span className="childCardProgress"><i style={{ width: `${progressPercent}%` }} /></span>
+      </span>
+      <span className="childTaskStatus">
+        <i>{formatMissionStatus(mission.status, t)}</i>
+        <strong>{mission.energy > 0 ? `+${mission.energy}` : "0"}</strong>
+      </span>
+    </button>
+  );
+}
+
+function ChildMissionDetail({ mission, onComplete, t }: { mission: Mission; onComplete: (mission: Mission) => void; t: (key: string) => string }) {
+  const progressPercent = Math.min(100, Math.round(((mission.progress ?? 0) / Math.max(1, mission.total ?? 1)) * 100));
+
+  return (
+    <div className="childMissionDetail">
+      <div className="childDetailTitle">
+        <span className="childTaskIcon large">{mission.icon}</span>
+        <div>
+          <p className="kicker">{formatCategory(mission.category, t)}</p>
+          <h2>{mission.title}</h2>
+          <span>{mission.target}</span>
+        </div>
+      </div>
+      <div className="childBigProgress">
+        <strong>{progressPercent}%</strong>
+        <span className={`status ${mission.status}`}>{formatMissionStatus(mission.status, t)}</span>
+        <div><i style={{ width: `${progressPercent}%` }} /></div>
+      </div>
+      <section>
+        <h3>{t("instructions")}</h3>
+        <p>{mission.detail || mission.target}</p>
+      </section>
+      <section>
+        <h3>{t("goals")}</h3>
+        <ul>
+          {(mission.goals?.length ? mission.goals : [mission.target]).map((goal) => <li key={goal}>{goal}</li>)}
+        </ul>
+      </section>
+      {mission.planDetail?.attachments?.length ? (
+        <section>
+          <h3>{t("attachments")}</h3>
+          <div className="detailAttachments">
+            {mission.planDetail.attachments.map((attachment) => <TaskAttachmentCard key={attachment.id} attachment={attachment} />)}
+          </div>
+        </section>
+      ) : null}
+      <dl className="childDetailFacts">
+        <div><dt>{t("dateLabel")}</dt><dd>{formatDate(mission.occurrenceDate, t)}</dd></div>
+        <div><dt>{t("timeLimit")}</dt><dd>{mission.timeLimitMinutes ? `${mission.timeLimitMinutes} min` : t("anyTime")}</dd></div>
+        <div><dt>{t("reward")}</dt><dd>+{mission.energy}</dd></div>
+      </dl>
+      <button className="childCompleteButton" type="button" onClick={() => onComplete(mission)}>
+        {mission.status === "done" ? t("supplementCompletionNote") : t("confirmComplete")}
+      </button>
+    </div>
   );
 }
 
@@ -3401,7 +3673,7 @@ async function uploadFile(file: File, kind: "attachment" | "avatar", missionId: 
   formData.append("missionId", missionId);
   formData.append("file", file);
 
-  const response = await fetch(`${apiBaseUrl}/uploads`, {
+  const response = await fetch(`${apiBaseUrl()}/uploads`, {
     body: formData,
     method: "POST"
   });
@@ -3596,8 +3868,21 @@ function formatDateTitle(anchorDate: string, view: CalendarView) {
   return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
+function formatShortMonthDay(value: string) {
+  const date = toLocalDate(value);
+  return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function shortDateLabel(value: string) {
   return toLocalDate(value).toLocaleDateString(undefined, { day: "numeric", weekday: "short" });
+}
+
+function greetingForChild(language: Language, name: string) {
+  const hour = new Date().getHours();
+  const englishGreeting = hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
+  const chineseGreeting = hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好";
+
+  return language === "zh" ? `🌞 ${chineseGreeting}，${name}!` : `🌞 ${englishGreeting}, ${name}!`;
 }
 
 function formatMissionTime(mission: Mission) {
@@ -3696,7 +3981,7 @@ function languageAwareReview(t: (key: string) => string) {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -3723,6 +4008,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 function readableRequestError(error: unknown, t: (key: string) => string) {
   if (error instanceof Error) {
+    if (error.message === "Failed to fetch" || error.name === "TypeError") {
+      return t("serverUnreachable");
+    }
+
     return error.message;
   }
 
