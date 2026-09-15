@@ -199,6 +199,10 @@ type TaskFilters = {
 };
 
 const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
+type WebSession = {
+  appMode?: AppMode;
+  familyId: string;
+};
 
 function apiBaseUrl() {
   if (configuredApiBaseUrl) {
@@ -447,15 +451,17 @@ function readWebSession() {
   }
 
   try {
-    return JSON.parse(value) as { familyId: string };
+    const session = JSON.parse(value) as Partial<WebSession>;
+    return session.familyId ? { appMode: session.appMode, familyId: session.familyId } : null;
   } catch {
     window.localStorage.removeItem(webSessionKey);
     return null;
   }
 }
 
-function saveWebSession(familyId: string) {
-  window.localStorage.setItem(webSessionKey, JSON.stringify({ familyId }));
+function saveWebSession(familyId: string, appMode?: AppMode) {
+  const previous = readWebSession();
+  window.localStorage.setItem(webSessionKey, JSON.stringify({ appMode: appMode ?? previous?.appMode, familyId }));
 }
 
 function clearWebSession() {
@@ -708,6 +714,7 @@ export default function Page() {
 
     if (storedSession) {
       setIsSignedIn(true);
+      setAppMode(storedSession.appMode ?? "child");
       void loadFamily(storedSession.familyId);
     }
   }, []);
@@ -865,8 +872,9 @@ export default function Page() {
       setFamily(data.family);
       setIsSignedIn(true);
       setMessage(authMode === "login" ? "" : t("accountRegistered"));
-      saveWebSession(data.session?.familyId ?? data.family.id);
-      setAppMode(data.family.children.length > 0 ? "child" : "parent");
+      const nextAppMode = data.family.children.length > 0 ? "child" : "parent";
+      saveWebSession(data.session?.familyId ?? data.family.id, nextAppMode);
+      setAppMode(nextAppMode);
       setAdminView(authMode === "login" && data.family.children.length > 0 ? "overview" : "family");
 
       const child = data.family.children[0];
@@ -893,9 +901,10 @@ export default function Page() {
 
     setFamily(data.family);
     setIsSignedIn(true);
-    setAppMode(data.family.children.length > 0 ? "child" : "parent");
+    const nextAppMode = data.family.children.length > 0 ? "child" : "parent";
+    setAppMode(nextAppMode);
     setMessage(t("googleSaved"));
-    saveWebSession(data.session?.familyId ?? data.family.id);
+    saveWebSession(data.session?.familyId ?? data.family.id, nextAppMode);
     await loadFamily(data.session?.familyId ?? data.family.id);
   }
 
@@ -1291,7 +1300,17 @@ export default function Page() {
 
   function selectAdminView(view: AdminView) {
     setAppMode("parent");
+    if (family) {
+      saveWebSession(family.id, "parent");
+    }
     setAdminView(view);
+  }
+
+  function switchAppMode(mode: AppMode) {
+    setAppMode(mode);
+    if (family) {
+      saveWebSession(family.id, mode);
+    }
   }
 
   if (!isSignedIn) {
@@ -1367,7 +1386,7 @@ export default function Page() {
         }}
         onLanguage={setLanguage}
         onLogout={logout}
-        onModeChange={setAppMode}
+        onModeChange={switchAppMode}
         onSelectMission={(mission) => {
           setCalendarAnchorDate(missionDateKey(mission));
           setSelectedMissionId(mission.id);
@@ -1397,7 +1416,7 @@ export default function Page() {
           ))}
         </nav>
         <div className="headerActions">
-          {activeChild ? <button className="secondary" type="button" onClick={() => setAppMode("child")}>Switch Child</button> : null}
+          {activeChild ? <button className="secondary" type="button" onClick={() => switchAppMode("child")}>Switch Child</button> : null}
           <button className="iconButton" type="button" aria-label="Help">?</button>
           <button className="iconButton" type="button" aria-label="Settings">⚙</button>
           <LanguageMenu language={language} onLanguage={setLanguage} />
