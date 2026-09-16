@@ -3,26 +3,17 @@
   "version": "1.22",
   "private": true,
   "workspaces": [
-    "app",
     "web",
     "server"
   ],
   "scripts": {
-    "app": "scripts/start-ipad.sh",
-    "app:device": "scripts/start-device.sh",
-    "app:install:device": "npm exec -w app -- expo run:ios --device",
-    "app:install:iphone15": "npm exec -w app -- expo run:ios --device \"LiChen iPhone 15\"",
-    "app:expo-go": "npm run start -w app",
     "backend": "scripts/start-backend.sh",
-    "build:preview": "npm run build:preview -w app",
-    "build:preview:android": "npm run build:preview:android -w app",
-    "build:preview:ios": "npm run build:preview:ios -w app",
-    "build:preview:simulator": "npm run build:preview:simulator -w app",
+    "ios:build": "xcodebuild -project ios/KoalaHabit.xcodeproj -scheme KoalaHabit -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build",
+    "ios:open": "open ios/KoalaHabit.xcodeproj",
     "restart": "scripts/restart-dev.sh",
     "web": "npm run dev -w web",
     "server": "npm run dev -w server",
     "test": "npm run typecheck",
-    "test:app": "npm run typecheck -w app",
     "test:server": "npm run typecheck -w server",
     "test:web": "npm run typecheck -w web",
     "typecheck": "npm run typecheck --workspaces --if-present"

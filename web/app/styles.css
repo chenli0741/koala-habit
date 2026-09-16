@@ -2427,6 +2427,518 @@ p {
   color: #fff;
 }
 
+.phoneShell {
+  min-height: 100vh;
+  padding: 14px 14px 92px;
+  background: #f5f2ea;
+  color: #20352b;
+}
+
+.phoneHero {
+  display: grid;
+  gap: 16px;
+  padding: 10px 0 2px;
+}
+
+.phoneTopBar,
+.phoneProfileRow,
+.phoneSectionHead,
+.phoneSheetTitle {
+  display: flex;
+  align-items: center;
+}
+
+.phoneTopBar {
+  justify-content: space-between;
+}
+
+.phoneIconButton {
+  width: 42px;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #ded3c1;
+  border-radius: 50%;
+  background: #fffefa;
+  color: #20352b;
+  font-size: 22px;
+  padding: 0;
+}
+
+.phoneProfileRow {
+  gap: 14px;
+}
+
+.phoneProfileRow h1,
+.phoneProfileRow p {
+  margin: 0;
+}
+
+.phoneProfileRow h1 {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.phoneProfileRow span,
+.phoneTreeStrip span,
+.phoneSectionHead span,
+.phoneStats span {
+  color: #657365;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.phoneAvatar {
+  width: 74px;
+  height: 74px;
+  overflow: hidden;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 24px;
+  background: #e8f0de;
+  color: #20352b;
+  font-size: 28px;
+  font-weight: 950;
+}
+
+.phoneAvatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.phoneStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.phoneStats div,
+.phoneTreeStrip,
+.phoneSchedule,
+.phoneTaskCard,
+.phoneMissionSheet {
+  border: 1px solid #ded3c1;
+  border-radius: 8px;
+  background: #fffefa;
+}
+
+.phoneStats div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.phoneStats strong {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.phoneToast {
+  margin: 10px 0;
+  border: 1px solid #b9d4b9;
+  border-radius: 8px;
+  background: #eaf6e8;
+  color: #365f3f;
+  font-weight: 850;
+  padding: 12px;
+}
+
+.phoneTreeStrip {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  margin: 14px 0;
+  padding: 14px;
+  background: #edf6e8;
+}
+
+.phoneTreeFace {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border: 5px solid #5b705a;
+  border-radius: 50%;
+  background: #a8b99b;
+}
+
+.phoneTreeFace span {
+  width: 20px;
+  height: 10px;
+  border-radius: 999px;
+  background: #20352b;
+}
+
+.phoneTreeStrip strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.phoneProgress {
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8e2d6;
+}
+
+.phoneProgress i,
+.phoneProgress b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #4d8b5f;
+}
+
+.phoneProgress.small {
+  height: 8px;
+}
+
+.phoneSchedule {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.phoneSectionHead {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.phoneSectionHead h2 {
+  margin: 2px 0 0;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.phoneSectionHead input {
+  width: 144px;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.phoneDayScroller {
+  display: grid;
+  grid-auto-columns: 58px;
+  grid-auto-flow: column;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.phoneDayScroller::-webkit-scrollbar {
+  display: none;
+}
+
+.phoneDayScroller button {
+  min-height: 72px;
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+  border: 1px solid #ded3c1;
+  background: #fff;
+  color: #20352b;
+  padding: 8px 4px;
+}
+
+.phoneDayScroller button.active {
+  background: #20352b;
+  color: #fff;
+}
+
+.phoneDayScroller span,
+.phoneDayScroller em {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 850;
+  opacity: 0.78;
+}
+
+.phoneDayScroller strong {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.phoneTaskList {
+  display: grid;
+  gap: 10px;
+}
+
+.phoneTaskCard {
+  min-height: 104px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  color: #20352b;
+  padding: 12px;
+  text-align: left;
+}
+
+.phoneTaskCard.selected {
+  border-color: #4d8b5f;
+  box-shadow: inset 0 0 0 2px #4d8b5f;
+}
+
+.phoneTaskIcon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #f0ebe2;
+  font-size: 28px;
+}
+
+.phoneTaskIcon.large {
+  width: 56px;
+  height: 56px;
+  font-size: 34px;
+}
+
+.phoneTaskMain {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.phoneTaskMain strong,
+.phoneTaskMain em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phoneTaskMain strong {
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.phoneTaskMain em {
+  color: #6a776c;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 650;
+}
+
+.phoneTaskChips {
+  min-height: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.phoneTaskChips i {
+  max-width: 96px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf6e8;
+  color: #4d7b57;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  padding: 3px 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phoneReward {
+  align-self: end;
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.phoneEmpty {
+  min-height: 120px;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  border: 1px dashed #ded3c1;
+  border-radius: 8px;
+  color: #6a776c;
+  text-align: center;
+}
+
+.phoneTabBar {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  left: 14px;
+  z-index: 25;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid #ded3c1;
+  border-radius: 8px;
+  background: rgb(255 254 250 / 94%);
+  box-shadow: 0 10px 28px rgb(32 53 43 / 18%);
+  padding: 6px;
+  backdrop-filter: blur(18px);
+}
+
+.phoneTabBar button {
+  min-height: 54px;
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  border-radius: 7px;
+  background: transparent;
+  color: #657365;
+  font-size: 12px;
+  padding: 5px 2px;
+}
+
+.phoneTabBar button.active {
+  background: #20352b;
+  color: #fff;
+}
+
+.phoneTabBar span {
+  font-size: 17px;
+  line-height: 1;
+}
+
+.phoneSheetBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  align-items: end;
+  background: rgb(32 53 43 / 34%);
+}
+
+.phoneMissionSheet {
+  max-height: min(82vh, 760px);
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+  border-radius: 18px 18px 0 0;
+  padding: 10px 16px 24px;
+  box-shadow: 0 -18px 42px rgb(32 53 43 / 24%);
+}
+
+.phoneSheetHandle {
+  width: 46px;
+  height: 5px;
+  justify-self: center;
+  border-radius: 999px;
+  background: #d8d0c4;
+}
+
+.phoneSheetTitle {
+  gap: 12px;
+}
+
+.phoneSheetTitle > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.phoneSheetTitle p,
+.phoneSheetTitle h2,
+.phoneSheetTitle em {
+  margin: 0;
+}
+
+.phoneSheetTitle p {
+  color: #657365;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.phoneSheetTitle h2 {
+  overflow-wrap: anywhere;
+  font-size: 24px;
+  line-height: 1.05;
+}
+
+.phoneSheetTitle em {
+  display: block;
+  margin-top: 4px;
+  color: #6a776c;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.phoneSheetProgress {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.phoneSheetProgress strong {
+  color: #4b6fa8;
+  font-size: 52px;
+  line-height: 1;
+}
+
+.phoneSheetProgress .phoneProgress {
+  grid-column: 1 / -1;
+}
+
+.phoneMissionSheet section {
+  border-top: 1px solid #eee5d8;
+  padding-top: 14px;
+}
+
+.phoneMissionSheet h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.phoneMissionSheet p,
+.phoneMissionSheet li {
+  color: #4f5d52;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.phoneMissionSheet ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.phoneFacts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.phoneFacts div {
+  min-width: 0;
+  border: 1px solid #eee5d8;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.phoneFacts dt {
+  color: #6a776c;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.phoneFacts dd {
+  overflow-wrap: anywhere;
+  margin: 5px 0 0;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.phoneCompleteButton {
+  min-height: 54px;
+  background: #20352b;
+  color: #fff;
+}
+
 @media (max-width: 1180px) {
   .childShell {
     grid-template-columns: 260px minmax(0, 1fr);

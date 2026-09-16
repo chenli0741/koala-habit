@@ -681,6 +681,7 @@ export default function Page() {
   const [taskLayout, setTaskLayout] = useState<TaskLayout>("split");
   const [filters, setFilters] = useState<TaskFilters>(emptyFilters);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const isPhoneViewport = useIsPhoneViewport();
   const t = (key: string) => tr(language, key);
 
   const activeChild = family?.children[0];
@@ -1367,6 +1368,37 @@ export default function Page() {
   }
 
   if (appMode === "child" && activeChild) {
+    if (isPhoneViewport) {
+      return (
+        <ChildPhoneAppPage
+          activeChild={activeChild}
+          calendarAnchorDate={calendarAnchorDate}
+          calendarView={calendarView === "month" ? "week" : calendarView}
+          family={family}
+          language={language}
+          message={message}
+          missions={missions}
+          selectedMissionId={selectedMissionId}
+          t={t}
+          totalEnergy={totalEnergy}
+          onComplete={startCompleteTask}
+          onDateChange={(date) => {
+            setCalendarAnchorDate(date);
+            setSelectedMissionId(null);
+          }}
+          onLanguage={setLanguage}
+          onLogout={logout}
+          onModeChange={switchAppMode}
+          onSelectMission={(mission) => {
+            setCalendarAnchorDate(missionDateKey(mission));
+            setSelectedMissionId(mission.id);
+          }}
+          onViewChange={setCalendarView}
+          onCloseMission={() => setSelectedMissionId(null)}
+        />
+      );
+    }
+
     return (
       <ChildAppPage
         activeChild={activeChild}
@@ -1918,6 +1950,22 @@ export default function Page() {
   );
 }
 
+function useIsPhoneViewport() {
+  const [isPhone, setIsPhone] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 700px)");
+    const update = () => setIsPhone(query.matches);
+
+    update();
+    query.addEventListener("change", update);
+
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return isPhone;
+}
+
 function ChildAppPage({
   activeChild,
   calendarAnchorDate,
@@ -2067,6 +2115,238 @@ function ChildAppPage({
         </div>
       </section>
     </main>
+  );
+}
+
+function ChildPhoneAppPage({
+  activeChild,
+  calendarAnchorDate,
+  calendarView,
+  family,
+  language,
+  message,
+  missions,
+  onCloseMission,
+  onComplete,
+  onDateChange,
+  onLanguage,
+  onLogout,
+  onModeChange,
+  onSelectMission,
+  onViewChange,
+  selectedMissionId,
+  t,
+  totalEnergy
+}: {
+  activeChild: Child;
+  calendarAnchorDate: string;
+  calendarView: "day" | "week";
+  family: Family | null;
+  language: Language;
+  message: string;
+  missions: Mission[];
+  onCloseMission: () => void;
+  onComplete: (mission: Mission) => void;
+  onDateChange: (date: string) => void;
+  onLanguage: (language: Language) => void;
+  onLogout: () => void;
+  onModeChange: (mode: AppMode) => void;
+  onSelectMission: (mission: Mission) => void;
+  onViewChange: (view: CalendarView) => void;
+  selectedMissionId: string | null;
+  t: (key: string) => string;
+  totalEnergy: number;
+}) {
+  const today = todayKey();
+  const week = weekDays(calendarAnchorDate);
+  const viewDays = calendarView === "day" ? [calendarAnchorDate] : week;
+  const visibleMissions = missions.filter((mission) => viewDays.includes(missionDateKey(mission)));
+  const dayMissions = missions.filter((mission) => missionDateKey(mission) === calendarAnchorDate);
+  const selectedMission = selectedMissionId ? missions.find((mission) => mission.id === selectedMissionId) ?? null : null;
+  const completedToday = dayMissions.filter((mission) => mission.status === "done").length;
+  const openCount = dayMissions.filter((mission) => mission.status !== "done").length;
+  const completionPercent = dayMissions.length ? Math.round((completedToday / dayMissions.length) * 100) : 0;
+  const taskList = calendarView === "day" ? dayMissions : visibleMissions;
+  const isChinese = language === "zh";
+
+  return (
+    <main className="phoneShell">
+      <header className="phoneHero">
+        <div className="phoneTopBar">
+          <button className="phoneIconButton" type="button" aria-label={isChinese ? "退出" : "Logout"} onClick={onLogout}>☰</button>
+          <LanguageMenu language={language} onLanguage={onLanguage} />
+        </div>
+        <div className="phoneProfileRow">
+          <div className="phoneAvatar">
+            {activeChild.avatarUri ? <img alt="" src={activeChild.avatarUri} /> : <span>{initials(activeChild.name)}</span>}
+          </div>
+          <div>
+            <span>{calendarAnchorDate === today ? t("today") : shortDateLabel(calendarAnchorDate)}</span>
+            <h1>{activeChild.name}</h1>
+            <p>{family?.name ?? "Growth Tree"}</p>
+          </div>
+        </div>
+        <section className="phoneStats">
+          <div>
+            <span>{isChinese ? "能量" : "Energy"}</span>
+            <strong>⭐ {totalEnergy}</strong>
+          </div>
+          <div>
+            <span>{isChinese ? "待完成" : "Open"}</span>
+            <strong>{openCount}</strong>
+          </div>
+          <div>
+            <span>{isChinese ? "进度" : "Done"}</span>
+            <strong>{completionPercent}%</strong>
+          </div>
+        </section>
+      </header>
+
+      {message ? <p className="phoneToast">{message}</p> : null}
+
+      <section className="phoneTreeStrip">
+        <div className="phoneTreeFace"><span /></div>
+        <div>
+          <strong>Lv3 Young Tree</strong>
+          <span>{completedToday}/{dayMissions.length} {isChinese ? "今日完成" : "today complete"}</span>
+          <div className="phoneProgress"><i style={{ width: `${completionPercent}%` }} /></div>
+        </div>
+      </section>
+
+      <section className="phoneSchedule">
+        <div className="phoneSectionHead">
+          <div>
+            <span>{calendarView === "day" ? (isChinese ? "今日任务" : "Today Tasks") : (isChinese ? "本周任务" : "Week Tasks")}</span>
+            <h2>{formatShortMonthDay(calendarAnchorDate)}</h2>
+          </div>
+          <input aria-label="Task date" type="date" value={calendarAnchorDate} onChange={(event) => onDateChange(event.target.value)} />
+        </div>
+
+        <div className="phoneDayScroller" aria-label={isChinese ? "选择日期" : "Choose day"}>
+          {week.map((date) => {
+            const count = missions.filter((mission) => missionDateKey(mission) === date).length;
+            return (
+              <button key={date} className={date === calendarAnchorDate ? "active" : ""} type="button" onClick={() => onDateChange(date)}>
+                <span>{shortDateLabel(date).split(" ")[0]}</span>
+                <strong>{formatShortMonthDay(date).slice(3)}</strong>
+                <em>{count}</em>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="phoneTaskList">
+          {taskList.map((mission) => (
+            <PhoneTaskCard key={mission.id} mission={mission} selected={selectedMissionId === mission.id} t={t} onClick={() => onSelectMission(mission)} />
+          ))}
+          {!taskList.length ? (
+            <div className="phoneEmpty">
+              <strong>{t("noTasks")}</strong>
+              <span>{isChinese ? "这一天没有任务。" : "No tasks for this day."}</span>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <nav className="phoneTabBar" aria-label={isChinese ? "孩子导航" : "Child navigation"}>
+        <button className={calendarView === "day" ? "active" : ""} type="button" onClick={() => onViewChange("day")}>
+          <span>●</span>{isChinese ? "今天" : "Today"}
+        </button>
+        <button className={calendarView === "week" ? "active" : ""} type="button" onClick={() => onViewChange("week")}>
+          <span>▦</span>{isChinese ? "本周" : "Week"}
+        </button>
+        <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+          <span>◌</span>{isChinese ? "树" : "Tree"}
+        </button>
+        <button type="button" onClick={() => onModeChange("parent")}>
+          <span>☰</span>{isChinese ? "家长" : "Parent"}
+        </button>
+      </nav>
+
+      {selectedMission ? (
+        <PhoneMissionSheet mission={selectedMission} t={t} onClose={onCloseMission} onComplete={onComplete} />
+      ) : null}
+    </main>
+  );
+}
+
+function PhoneTaskCard({ mission, onClick, selected, t }: { mission: Mission; onClick: () => void; selected: boolean; t: (key: string) => string }) {
+  const progressPercent = Math.min(100, Math.round(((mission.progress ?? 0) / Math.max(1, mission.total ?? 1)) * 100));
+
+  return (
+    <button className={`phoneTaskCard ${selected ? "selected" : ""}`} type="button" onClick={onClick}>
+      <span className="phoneTaskIcon">{mission.icon}</span>
+      <span className="phoneTaskMain">
+        <strong>{mission.title}</strong>
+        <em>{mission.target}</em>
+        <span className="phoneTaskChips">
+          <i>{formatMissionStatus(mission.status, t)}</i>
+          {mission.timeLimitMinutes ? <i>{mission.timeLimitMinutes} min</i> : null}
+          {mission.scheduledTime ? <i>{mission.scheduledTime}</i> : null}
+        </span>
+        <span className="phoneProgress small"><b style={{ width: `${progressPercent}%` }} /></span>
+      </span>
+      <span className="phoneReward">+{mission.energy}</span>
+    </button>
+  );
+}
+
+function PhoneMissionSheet({ mission, onClose, onComplete, t }: { mission: Mission; onClose: () => void; onComplete: (mission: Mission) => void; t: (key: string) => string }) {
+  const progressPercent = Math.min(100, Math.round(((mission.progress ?? 0) / Math.max(1, mission.total ?? 1)) * 100));
+  const note = latestCompletionNote(mission);
+
+  return (
+    <div className="phoneSheetBackdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget ? onClose() : undefined}>
+      <section aria-modal="true" className="phoneMissionSheet" role="dialog">
+        <div className="phoneSheetHandle" />
+        <div className="phoneSheetTitle">
+          <span className="phoneTaskIcon large">{mission.icon}</span>
+          <div>
+            <p>{formatCategory(mission.category, t)}</p>
+            <h2>{mission.title}</h2>
+            <em>{mission.target}</em>
+          </div>
+          <button className="phoneIconButton" type="button" aria-label={t("close")} onClick={onClose}>×</button>
+        </div>
+        <div className="phoneSheetProgress">
+          <strong>{progressPercent}%</strong>
+          <span className={`status ${mission.status}`}>{formatMissionStatus(mission.status, t)}</span>
+          <div className="phoneProgress"><i style={{ width: `${progressPercent}%` }} /></div>
+        </div>
+        <section>
+          <h3>{t("instructions")}</h3>
+          <p>{mission.detail || mission.target}</p>
+        </section>
+        <section>
+          <h3>{t("goals")}</h3>
+          <ul>
+            {(mission.goals?.length ? mission.goals : [mission.target]).map((goal) => <li key={goal}>{goal}</li>)}
+          </ul>
+        </section>
+        {mission.planDetail?.attachments?.length ? (
+          <section>
+            <h3>{t("attachments")}</h3>
+            <div className="detailAttachments">
+              {mission.planDetail.attachments.map((attachment) => <TaskAttachmentCard key={attachment.id} attachment={attachment} />)}
+            </div>
+          </section>
+        ) : null}
+        {note ? (
+          <section>
+            <h3>{t("completionNote")}</h3>
+            <p>{note}</p>
+          </section>
+        ) : null}
+        <dl className="phoneFacts">
+          <div><dt>{t("dateLabel")}</dt><dd>{formatDate(mission.occurrenceDate, t)}</dd></div>
+          <div><dt>{t("timeLimit")}</dt><dd>{mission.timeLimitMinutes ? `${mission.timeLimitMinutes} min` : t("anyTime")}</dd></div>
+          <div><dt>{t("reward")}</dt><dd>+{mission.energy}</dd></div>
+        </dl>
+        <button className="phoneCompleteButton" type="button" onClick={() => onComplete(mission)}>
+          {mission.status === "done" ? t("supplementCompletionNote") : t("confirmComplete")}
+        </button>
+      </section>
+    </div>
   );
 }
 

@@ -4,9 +4,9 @@ Koala Habit is a family habit-building app for elementary school children. Kids 
 
 ## Workspace
 
-- `app/` - Expo iPad-first mobile/tablet app
-- `web/` - Parent/admin web console
+- `web/` - Web app for child tasks and parent/admin workflows
 - `server/` - API and domain logic
+- `ios/` - Native iOS WebView shell that loads the web app
 
 ## First Milestone
 
@@ -23,15 +23,27 @@ The preview API is declared in `render.yaml` as a Render web service plus a prev
 https://koala-habit-api-preview.onrender.com
 ```
 
-The mobile preview build reads that URL from `app/eas.json` through `EXPO_PUBLIC_API_URL`.
+## Local Development
 
 ```bash
-npm run build:preview:ios
-npm run build:preview:android
+npm run restart
 ```
 
-For an iOS Simulator preview build:
+Or run each service separately:
 
 ```bash
-npm run build:preview:simulator
+npm run server
+npm run web
+```
+
+Open the iOS shell in Xcode:
+
+```bash
+npm run ios:open
+```
+
+Build the iOS shell for the simulator:
+
+```bash
+npm run ios:build
 ```

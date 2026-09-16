@@ -7,15 +7,16 @@ build/
 web-build/
 .next/
 
-# Expo / React Native
+# Old mobile tooling
 .expo/
 expo-env.d.ts
 .metro-health-check*
-/ios/
 /android/
 
 # Native signing and generated files
 .kotlin/
+*.xcuserstate
+**/xcuserdata/
 *.orig.*
 *.jks
 *.p8
