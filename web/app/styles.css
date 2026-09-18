@@ -830,6 +830,7 @@ p {
   gap: 16px;
   width: min(920px, 100%);
   max-height: calc(100vh - 48px);
+  overflow: auto;
   border: 1px solid #ded3c1;
   border-radius: 8px;
   background: #fff;
@@ -1715,6 +1716,27 @@ p {
   font-weight: 850;
 }
 
+.bookDialog input[readonly] {
+  background: #f2f3ef;
+  color: #657365;
+}
+
+.bookContentEditor {
+  min-height: min(52vh, 560px);
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.bookDialog .actionRow {
+  position: sticky;
+  bottom: -20px;
+  z-index: 2;
+  margin: 0 -20px -20px;
+  border-top: 1px solid #e5dac9;
+  background: #fff;
+  padding: 14px 20px 20px;
+}
+
 .bookPager button {
   min-height: 36px;
 }
@@ -1759,12 +1781,28 @@ p {
   margin-top: 0;
 }
 
-.bookList div {
+.bookList > div,
+.bookListItem {
   display: grid;
   gap: 5px;
   border: 1px solid #e5dac9;
   border-radius: 8px;
+  background: #fff;
+  color: #20352b;
   padding: 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.bookListItem:hover,
+.bookListItem:focus-visible {
+  border-color: #3f7d58;
+  box-shadow: 0 0 0 2px rgba(63, 125, 88, 0.12);
+}
+
+.bookListItem .bookItemAction {
+  color: #3f7d58;
+  font-weight: 850;
 }
 
 .bookList span,
@@ -1776,6 +1814,14 @@ p {
 
 .bookList em {
   font-style: normal;
+}
+
+.bookList p {
+  color: #2b3b30;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0.35rem 0 0;
+  max-width: 68rem;
 }
 
 .memberList article {

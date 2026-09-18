@@ -651,6 +651,7 @@ export default function Page() {
   const [bookPage, setBookPage] = useState(1);
   const [isBookCategoryDialogOpen, setIsBookCategoryDialogOpen] = useState(false);
   const [isBookDialogOpen, setIsBookDialogOpen] = useState(false);
+  const [editingBookId, setEditingBookId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [account, setAccount] = useState({
     confirmPassword: "",
@@ -789,6 +790,29 @@ export default function Page() {
     }
   }
 
+  function openBookDialog(book?: BookRecord) {
+    if (book) {
+      setEditingBookId(book.content.id);
+      setBookForm({
+        category: book.content.category,
+        content: book.content.content,
+        id: book.content.id,
+        title: book.content.title
+      });
+    } else {
+      setEditingBookId(null);
+      setBookForm({ ...emptyBookForm, category: selectedBookCategory });
+    }
+
+    setIsBookDialogOpen(true);
+  }
+
+  function closeBookDialog() {
+    setEditingBookId(null);
+    setBookForm({ ...emptyBookForm, category: selectedBookCategory });
+    setIsBookDialogOpen(false);
+  }
+
   async function submitBook(event: FormEvent) {
     event.preventDefault();
     setMessage("");
@@ -799,7 +823,7 @@ export default function Page() {
         headers: {
           "Content-Type": "application/json"
         },
-        method: "POST"
+        method: editingBookId ? "PATCH" : "POST"
       });
 
       if (!response.ok) {
@@ -809,8 +833,10 @@ export default function Page() {
 
       setBookForm({ ...emptyBookForm, category: bookForm.category });
       setSelectedBookCategory(bookForm.category);
+      setEditingBookId(null);
       setIsBookDialogOpen(false);
       await loadBooks();
+      setMessage(language === "zh" ? (editingBookId ? "内容已更新。" : "内容已创建。") : (editingBookId ? "Content updated." : "Content created."));
     } catch (error) {
       setMessage(readableRequestError(error, t));
     }
@@ -1803,10 +1829,7 @@ export default function Page() {
                   <h3>{selectedBookCategory}</h3>
                 </div>
                 <div className="bookPager">
-                  <button className="iconButton addButton" type="button" aria-label={language === "zh" ? "新增内容" : "Add content"} onClick={() => {
-                    setBookForm((current) => ({ ...current, category: selectedBookCategory }));
-                    setIsBookDialogOpen(true);
-                  }}>+</button>
+                  <button className="iconButton addButton" type="button" aria-label={language === "zh" ? "新增内容" : "Add content"} onClick={() => openBookDialog()}>+</button>
                   <button className="secondary" disabled={bookPage <= 1} type="button" onClick={() => setBookPage((current) => Math.max(1, current - 1))}>
                     {language === "zh" ? "上一页" : "Prev"}
                   </button>
@@ -1818,11 +1841,13 @@ export default function Page() {
               </div>
               <div className="bookList">
                 {visibleBooks.map((book) => (
-                  <div key={book.path}>
+                  <button className="bookListItem" key={book.path} type="button" onClick={() => openBookDialog(book)}>
                     <strong>{book.content.title}</strong>
                     <span>{book.path}</span>
                     <em>{t("stableId")}: {book.content.id}</em>
-                  </div>
+                    <p>{book.content.content.split("\n").filter(Boolean).slice(0, 3).join(" ")}</p>
+                    <span className="bookItemAction">{language === "zh" ? "查看 / 编辑" : "View / Edit"}</span>
+                  </button>
                 ))}
                 {!visibleBooks.length ? (
                   <div>
@@ -1865,8 +1890,8 @@ export default function Page() {
           <form aria-modal="true" className="largeTextDialog bookDialog" role="dialog" onSubmit={submitBook}>
             <div className="sectionHead">
               <div>
-                <p className="kicker">{language === "zh" ? "新增内容" : "New content"}</p>
-                <h2>{t("books")}</h2>
+                <p className="kicker">{editingBookId ? (language === "zh" ? "内容明细" : "Content detail") : (language === "zh" ? "新增内容" : "New content")}</p>
+                <h2>{editingBookId ? (language === "zh" ? "查看与编辑" : "View and edit") : t("books")}</h2>
               </div>
             </div>
             <label>
@@ -1883,18 +1908,15 @@ export default function Page() {
             </label>
             <label>
               {t("stableId")}
-              <input placeholder={language === "zh" ? "留空自动生成 UUID" : "Leave blank to auto-generate UUID"} value={bookForm.id} onChange={(event) => setBookForm({ ...bookForm, id: event.target.value })} />
+              <input readOnly={Boolean(editingBookId)} placeholder={language === "zh" ? "留空自动生成 UUID" : "Leave blank to auto-generate UUID"} value={bookForm.id} onChange={(event) => setBookForm({ ...bookForm, id: event.target.value })} />
             </label>
             <label>
               {language === "zh" ? "正文" : "Content"}
-              <textarea rows={10} value={bookForm.content} onChange={(event) => setBookForm({ ...bookForm, content: event.target.value })} />
+              <textarea className={editingBookId ? "bookContentEditor" : undefined} rows={editingBookId ? 18 : 10} value={bookForm.content} onChange={(event) => setBookForm({ ...bookForm, content: event.target.value })} />
             </label>
             <div className="actionRow">
-              <button className="secondary" type="button" onClick={() => {
-                setBookForm({ ...emptyBookForm, category: selectedBookCategory });
-                setIsBookDialogOpen(false);
-              }}>{t("cancel")}</button>
-              <button type="submit">{language === "zh" ? "保存内容" : "Save content"}</button>
+              <button className="secondary" type="button" onClick={closeBookDialog}>{t("cancel")}</button>
+              <button type="submit">{editingBookId ? (language === "zh" ? "保存修改" : "Save changes") : (language === "zh" ? "保存内容" : "Save content")}</button>
             </div>
           </form>
         </div>

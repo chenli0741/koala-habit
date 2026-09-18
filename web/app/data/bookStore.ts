@@ -208,6 +208,65 @@ export async function createBook(input: BookInput) {
   } satisfies BookRecord;
 }
 
+export async function updateBook(id: string, input: BookInput) {
+  if (!pool) {
+    throw new Error("DATABASE_URL is required to update Books content.");
+  }
+
+  await initBookDb();
+
+  const title = input.title.trim();
+  const category = input.category.trim();
+
+  await pool.query(
+    `
+      insert into koala_study_book_categories (name, sort_order)
+      values ($1, 99)
+      on conflict (name) do nothing
+    `,
+    [category]
+  );
+
+  const result = await pool.query<{
+    category: string;
+    content: string;
+    created_at: Date;
+    id: string;
+    slug: string;
+    title: string;
+    updated_at: Date;
+  }>(
+    `
+      update koala_study_books
+      set title = $2,
+          category = $3,
+          content = $4,
+          updated_at = now()
+      where id = $1
+      returning id, slug, title, category, content, created_at, updated_at
+    `,
+    [id, title, category, input.content.trim()]
+  );
+
+  const row = result.rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    path: row.slug,
+    content: {
+      id: row.id,
+      title: row.title,
+      category: row.category,
+      content: row.content,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString()
+    }
+  } satisfies BookRecord;
+}
+
 async function initBookDb() {
   if (!pool || initialized) {
     return;
@@ -274,7 +333,13 @@ async function initBookDb() {
       `
         insert into koala_study_books (id, slug, title, category, content, created_at, updated_at)
         values ($1, $2, $3, $4, $5, $6, $7)
-        on conflict (id) do nothing
+        on conflict (id) do update set
+          slug = excluded.slug,
+          title = excluded.title,
+          category = excluded.category,
+          content = excluded.content,
+          updated_at = excluded.updated_at
+        where koala_study_books.updated_at <= excluded.updated_at
       `,
       [
         record.content.id,
